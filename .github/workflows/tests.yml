@@ -16,7 +16,7 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
       - name: install dev harness
         run: npm install --no-audit --no-fund
       - name: unit checks (codec + VM + CLI)
