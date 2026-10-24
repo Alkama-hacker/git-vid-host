@@ -67,9 +67,7 @@ the repo):
   `Document.write`/`addEventListener`/`Storage` must kill; one legit traffic
   wrapper must not; three must; forged bridge key must be rejected) matrix.
 - `phpwasm_cli.mjs` — CLI bridge used by `GVH_PHP_MODE=wasm` (dev only).
-- `preview_server.mjs` — real HTTP preview of a sealed build on top of php-wasm
-  (`node tests/preview_server.mjs /tmp/gvh-out/demo 8090`), useful to see the
-  page decrypt in a real browser without installing PHP.
+
 
 ## Notes
 

@@ -121,6 +121,20 @@ generated headers already allow it. A tool that rewrites `document.write`
 **Don't wrap the site in your own iframe** unless you built it with
 `--allow-iframe`; the shell blocks foreign parents by design.
 
+What the sealed page sends so nobody can embed it:
+
+| Layer | Value |
+|---|---|
+| Header | `X-Frame-Options: DENY` |
+| Header | CSP `frame-ancestors 'none'` |
+| Header | `Cross-Origin-Opener-Policy: same-origin` |
+| Server | `Sec-Fetch-Dest: iframe\|frame\|embed\|object` → **403** + hacker fallback, before any markup is sent |
+| Client | `top !== self`, `frameElement` without the shield marker, opaque origin (`sandbox`), blocked `localStorage`, `sandbox` attribute on the parent frame → wipe + redirect |
+
+If you *do* need your own site to frame it (staging, dashboard widget), build
+with `--allow-iframe`: it drops XFO/`frame-ancestors` and the client frame
+check, but the sandbox and the hook scan stay active.
+
 ---
 
 ## Troubleshooting

@@ -550,7 +550,7 @@ class Builder:
                   modules=["right-click", "shortcut-key", "devtools-heuristic", "eruda/vconsole",
                            "bookmarklet/injection", "webview", "puppeteer/headless", "iframe",
                            "credit-banner", "native-hook", "print", "console-probe",
-                           "hook/tamper-scan", "frame-isolation"])
+                           "hook/tamper-scan", "frame-isolation", "anti-embed"])
 
         if self.opt.get("dry"):
             # analysis-only pass (gvh inspect): no PHP, no output written

@@ -214,6 +214,7 @@ await scenario('kiwi browser UA', { ua: UA_KIWI }, 'deny');
 await scenario('lemur browser UA', { ua: UA_LEMUR }, 'deny');
 await scenario('curl UA', { ua: UA_CURL }, 'deny');
 await scenario('iframe / different top', { topDifferent: true }, 'deny');
+await scenario('sandboxed embed (opaque origin)', { globals: { origin: 'null' } }, 'deny');
 await scenario('eruda devtools', { globals: { eruda: { _: 1 } } }, 'deny');
 await scenario('vconsole devtools', { globals: { vConsole: { _: 1 } } }, 'deny');
 await scenario('puppeteer global', { globals: { __puppeteer_evaluation_script__: {} } }, 'deny');

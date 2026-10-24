@@ -99,9 +99,21 @@
   /* ------------------------------------------------------------------ */
   /* 1. environment gates (hard signals -> immediate lock)              */
   /* ------------------------------------------------------------------ */
+  // opaque origin == sandboxed by somebody else
+  try { if (String(W.origin) === 'null') return kill('sandbox'); } catch (e) { return kill('sandbox'); }
+  try { if (String(location.origin) === 'null') return kill('sandbox'); } catch (e) { return kill('sandbox'); }
+  try {
+    var FE = W.frameElement;
+    if (FE && FE.getAttribute) {
+      var FE_TAG = String(FE.tagName || '').toUpperCase();
+      if (FE_TAG === 'IFRAME' && FE.hasAttribute('sandbox')) return kill('sandbox');
+    }
+  } catch (e2) { }
   if (FL.iframe && !OWN && W.top !== W.self) {
     return kill('frame');
   }
+  // an outer document that re-parents our frame is an embed attempt
+  if (!OWN && W.frameElement) { return kill('frame'); }
   if (NAV.webdriver === true) {
     return kill('automation');
   }

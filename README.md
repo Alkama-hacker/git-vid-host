@@ -36,6 +36,7 @@ Pure Python standard library + PHP. No framework, no cloud, no database.
 12. [Honest security notes](#honest-security-notes)
 13. [Troubleshooting](#troubleshooting)
 14. [Repository layout](#repository-layout)
+15. [Termux (বাংলা গাইড)](#termux)
 
 ---
 
@@ -74,6 +75,9 @@ Everything runs offline. Nothing about the client's page leaves the machine.
   `http://localhost` is the only exception.
 
 ### Termux
+
+বাংলায় ধাপে ধাপে: **[`docs/TERMUX-BN.md`](docs/TERMUX-BN.md)** 누르세요.
+
 
 ```bash
 pkg update
@@ -245,7 +249,8 @@ Detectors (all configurable through build flags where noted):
 | Browsers | Kiwi, Lemur, Mises, Yandex (desktop-extension mobile browsers) |
 | Webviews | `; wv` UA, FB/Instagram/Line/WeChat/etc., `ReactNativeWebView`, `Android` bridges, iOS non-Safari |
 | Server-side | crawler/script UAs (`curl`, `wget`, `python-requests`, `node-fetch`, Googlebot, …), empty UA |
-| Frames | `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, JS `top !== self` |
+| Frames | `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `Sec-Fetch-Dest` refused server-side (`iframe`/`frame`/`embed`/`object` → 403), JS `top !== self` + `frameElement` check |
+| Sandbox | opaque origin (`origin === "null"`), blocked `localStorage`/`document.domain`, `sandbox` attribute on the embedding frame → wiped |
 | Injection | MutationObserver on late `<script>`/`<iframe>`/`<object>`/`<embed>`, `javascript:` hrefs |
 | Bookmarklets | `designMode`, `contenteditable` on `<html>`/`<body>`, own script removed |
 | Copy | selection/copy/cut/drag blocked outside inputs, print blocked |
@@ -388,12 +393,6 @@ Fixtures are generated on the fly (`tests/fixtures_gen.py`); no binaries are
 committed. `GVH_PHP_MODE=wasm` tells the CLI to use the php-wasm bridge instead
 of a system PHP binary (dev only).
 
-Want to see a sealed page in a real browser without installing PHP?
-
-```bash
-GVH_PHP_MODE=wasm ./gvh build examples/demo/index.html -o /tmp/demo --allow-iframe
-node tests/preview_server.mjs /tmp/demo 8090     # http://localhost:8090
-```
 
 ---
 

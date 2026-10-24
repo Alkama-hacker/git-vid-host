@@ -59,9 +59,31 @@ const html = shell.text();
 
 check('shell 200', shell.status === 200, shell.status);
 check('x-frame-options DENY', shell.header('x-frame-options') === 'DENY', shell.header('x-frame-options'));
+check('cross-origin-opener-policy same-origin', shell.header('cross-origin-opener-policy') === 'same-origin', shell.header('cross-origin-opener-policy'));
+check('x-permitted-cross-domain-policies none', shell.header('x-permitted-cross-domain-policies') === 'none', shell.header('x-permitted-cross-domain-policies'));
 check('CSP frame-ancestors none', /frame-ancestors 'none'/.test(shell.header('content-security-policy') || ''));
 check('cache no-store', /no-store/.test(shell.header('cache-control') || ''));
 check('nosniff', shell.header('x-content-type-options') === 'nosniff');
+
+/* --- embedding gate: another site must not be able to frame us -------- */
+{
+  const framed = await srv.request({
+    path: '/index.php',
+    headers: { 'sec-fetch-dest': 'iframe', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'cross-site' },
+  });
+  check('iframe request is refused', framed.status === 403, framed.status);
+  check('iframe request gets no sealed shell', !framed.text().includes('MAN_B64') && !framed.text().includes('__GVH_BRIDGE__'));
+  check('iframe request gets the hacker fallback', /NOOB/i.test(framed.text()));
+
+  const embedded = await srv.request({ path: '/index.php', headers: { 'sec-fetch-dest': 'frame', 'sec-fetch-mode': 'navigate' } });
+  check('frame request is refused', embedded.status === 403, embedded.status);
+
+  const object = await srv.request({ path: '/index.php', headers: { 'sec-fetch-dest': 'object', 'sec-fetch-mode': 'navigate' } });
+  check('object/embed request is refused', object.status === 403, object.status);
+
+  const direct = await srv.request({ path: '/index.php', headers: { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none' } });
+  check('a normal top-level visit still loads', direct.status === 200 && direct.text().includes('MAN_B64'), direct.status);
+}
 check('session cookie set', /^gv_[a-z0-9]{6}=/.test((shell.setCookies[0] || '')), shell.setCookies[0]);
 check('shell has no raw page markup', !/<h1[^>]*id="headline"/.test(html) && !html.includes('class="hero"'));
 check('shell has credit', html.includes('@SHACKER_ENCRYPTION_bot') && html.includes('@Haki_xmw'));

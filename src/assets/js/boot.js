@@ -145,6 +145,56 @@
     render(page);
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* anti-embed gates: nobody may display this page inside their own    */
+  /* ------------------------------------------------------------------ */
+  function sandboxed() {
+    // A sandboxed iframe without allow-same-origin gets an opaque origin, a
+    // throwing localStorage and a throwing document.domain accessor. Any of
+    // them is proof that the page is boxed in by somebody else.
+    try { if (String(W.origin) === 'null') return true; } catch (e) { return true; }
+    try { if (String(location.origin) === 'null') return true; } catch (e2) { return true; }
+    try { void W.document.domain; } catch (e3) { return true; }
+    var framed = false;
+    try { framed = W.top !== W.self; } catch (e4) { framed = true; }
+    if (framed) {
+      // storage is only blocked inside a sandbox/3rd-party frame; a private
+      // browsing top-level window must not be punished for it
+      try { W.localStorage.getItem('gvh'); } catch (e5) {
+        if (e5 && (e5.name === 'SecurityError' || e5.code === 18)) return true;
+      }
+      try { W.sessionStorage.getItem('gvh'); } catch (e6) {
+        if (e6 && (e6.name === 'SecurityError' || e6.code === 18)) return true;
+      }
+    }
+    try {
+      var fe = W.frameElement;
+      if (fe && fe.getAttribute) {
+        if (fe.hasAttribute('sandbox')) return true;
+        if (fe.getAttribute('data-gvh') !== '1') return true;
+      }
+    } catch (e7) { /* cross-origin frameElement means we are framed */ }
+    return false;
+  }
+
+  function foreignParent() {
+    // window.top !== window.self never throws, even cross-origin.
+    var framed = false;
+    try { framed = W.top !== W.self; } catch (e) { framed = true; }
+    if (!framed) return false;
+    // our own sealed frame is allowed (it carries the bridge marker and lives
+    // inside this very document); anything else is an unauthorised embed
+    try {
+      var p = W.parent;
+      if (p && p.__GVH_BRIDGE__ && p.__GVH_BRIDGE__.k === HOSTKEY) return false;
+    } catch (e2) { }
+    try {
+      if (W.frameElement && W.frameElement.getAttribute('data-gvh') === '1') return false;
+    } catch (e3) { }
+    return true;
+  }
+
   /* ------------------------------------------------------------------ */
   /* frame host: the protected document never lives in this DOM         */
   /* ------------------------------------------------------------------ */
@@ -231,6 +281,8 @@
   /* 1. environment gates                                               */
   /* ------------------------------------------------------------------ */
   if (location.protocol === 'file:') return dead();
+  if (sandboxed()) { denyPage(); return; }
+  if (BLOCKFRAME && foreignParent()) { denyPage(); return; }
   if (!SC) return render(PAGES.https);
 
   var UA = navigator.userAgent || '';
@@ -238,7 +290,7 @@
     /HeadlessChrome|PhantomJS|Puppeteer|Playwright|Selenium|Electron\/|Nightmare|jsdom\/|WebDriver/i.test(UA) ||
     /curl\/|Wget\/|python-|Go-http-client|node-fetch|axios\/|okhttp|Java\/|libwww|scrapy|aiohttp|httpclient/i.test(UA);
 
-  if (BLOCKFRAME && W.top !== W.self) {
+  if (BLOCKFRAME && foreignParent()) {
     try { W.top.location.href = DENY; } catch (e) { }
     setTimeout(function () { if (!FAILED) { FAILED = true; render(PAGES.fallback); } }, 350);
     return;

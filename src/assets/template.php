@@ -87,6 +87,8 @@ function gvh_html_headers()
     $csp .= $allowFrame ? " frame-ancestors *" : " frame-ancestors 'none'";
     gvh_hdr('Content-Security-Policy', $csp);
     gvh_hdr('Cross-Origin-Resource-Policy', 'same-origin');
+    gvh_hdr('Cross-Origin-Opener-Policy', 'same-origin');
+    gvh_hdr('X-Permitted-Cross-Domain-Policies', 'none');
 }
 
 function gvh_send($body, $code)
@@ -525,9 +527,40 @@ function gvh_api($cfg, $token)
 /* ------------------------------------------------------------------------- */
 /* shell                                                                      */
 /* ------------------------------------------------------------------------- */
+/**
+ * Refuse to be *embedded*. Modern browsers already honour X-Frame-Options and
+ * CSP frame-ancestors, but sandboxed iframes, extension shims and old engines
+ * do not always: the fetch metadata headers tell us the request is an embed
+ * even when the browser would let it through.
+ */
+function gvh_embed_blocked($cfg)
+{
+    if (!empty($cfg['allow_iframe'])) {
+        return false;
+    }
+    $dest = isset($_SERVER['HTTP_SEC_FETCH_DEST']) ? strtolower($_SERVER['HTTP_SEC_FETCH_DEST']) : '';
+    if ($dest === 'iframe' || $dest === 'frame' || $dest === 'embed' || $dest === 'object') {
+        return true;
+    }
+    $mode = isset($_SERVER['HTTP_SEC_FETCH_MODE']) ? strtolower($_SERVER['HTTP_SEC_FETCH_MODE']) : '';
+    if ($mode === 'navigate' && $dest !== 'document' && $dest !== '') {
+        return true;
+    }
+    // Fallback for browsers without fetch-metadata: the legacy FRAME header is
+    // injected by some proxies when a page is displayed in a frame.
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'com.adobe.flashplayer') {
+        return true;
+    }
+    return false;
+}
+
 function gvh_shell($cfg, $token, $isNew)
 {
     $GLOBALS['GVH_ALLOW_FRAME'] = !empty($cfg['allow_iframe']);
+    if (gvh_embed_blocked($cfg)) {
+        gvh_html_headers();
+        gvh_page($cfg['fb'], 403);
+    }
     if ($isNew) {
         gvh_set_cookie($cfg, $token);
     }
