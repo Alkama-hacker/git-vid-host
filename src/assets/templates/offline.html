@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SEALED PAGE</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{min-height:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace}
+  body{display:flex;align-items:center;justify-content:center;padding:22px;color:#dff6ff;background:#02070d;
+    background:radial-gradient(55% 55% at 18% 12%,#06304a 0%,transparent 62%),radial-gradient(50% 50% at 88% 90%,#071a2e 0%,transparent 60%),#02070d}
+  .card{width:min(94vw,660px);text-align:center;border-radius:24px;padding:clamp(24px,5vw,54px);
+    border:1px solid rgba(0,240,255,.22);background:linear-gradient(165deg,rgba(6,26,40,.82),rgba(3,10,18,.9));
+    box-shadow:0 40px 120px rgba(0,0,0,.72),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(14px);animation:in .8s ease both}
+  @keyframes in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+  .lock{position:relative;width:96px;height:96px;margin:0 auto 8px;display:grid;place-items:center}
+  .ring{position:absolute;inset:0;border-radius:50%;border:1px dashed rgba(0,240,255,.45);animation:spin 9s linear infinite}
+  .ring2{position:absolute;inset:12px;border-radius:50%;border:1px solid rgba(0,240,255,.25);animation:spin 5s linear infinite reverse}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .ico{font-size:40px;filter:drop-shadow(0 0 18px rgba(0,240,255,.55))}
+  h1{font-size:clamp(24px,5.6vw,40px);letter-spacing:-.02em;margin:18px 0 10px;color:#eafcff}
+  h1 span{color:#00f0ff;text-shadow:0 0 26px rgba(0,240,255,.55)}
+  p{color:#a7cfdf;font-size:clamp(13px,3vw,16px);line-height:1.7;max-width:48ch;margin:0 auto}
+  .code{margin:24px auto 0;display:inline-block;text-align:left;border-radius:12px;padding:13px 16px;font-size:12px;color:#8ee9ff;
+    background:rgba(0,0,0,.4);border:1px solid rgba(0,240,255,.16)}
+  .code i{color:#5b8a9c;font-style:normal}
+  .foot{margin-top:24px;font-size:10px;letter-spacing:.2em;color:#54788a}
+  .foot b{color:#00f0ff}
+</style>
+</head>
+<body>
+<main class="card" role="alert">
+  <div class="lock"><span class="ring"></span><span class="ring2"></span><span class="ico">🔒</span></div>
+  <h1>SEALED <span>PAGE</span></h1>
+  <p>This website is cryptographically sealed to its original server. Saved copies, offline files and mirrored clones are locked by design.</p>
+  <div class="code">
+    <div><i>//</i> gvh-shield: content vault unreachable</div>
+    <div><i>//</i> status : <span style="color:#ff6b6b">SEALED</span></div>
+  </div>
+  <div class="foot">SECURED BY <b>@SHACKER_ENCRYPTION_bot</b> · DEV Shacker · @Haki_xmw</div>
+</main>
+</body>
+</html>

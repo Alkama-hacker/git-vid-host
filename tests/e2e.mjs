@@ -1,0 +1,12 @@
+import { startServer, boot } from './client_test.mjs';
+const dir = process.argv[2] || '/tmp/gvh-out/simple';
+const srv = await startServer(dir + '/index.php');
+const b = await boot(srv, { globals: { __GVH_DEBUG: 1 } });
+console.log('errors', b.errors.slice(0, 3));
+console.log('final len', b.finalHtml.length);
+console.log('has headline', b.finalHtml.includes('Neon Coffee'));
+console.log('has engine banner', b.finalHtml.includes('@SHACKER_ENCRYPTION_bot'));
+console.log('starts with doctype', b.finalHtml.trim().slice(0, 40));
+console.log('has html banner', b.finalHtml.includes('GVH SHIELD'));
+console.log('has token left', b.finalHtml.includes('__GVH_A_'));
+process.exit(0);

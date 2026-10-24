@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nocturne Studio — Demo</title>
+<meta name="description" content="A small demo site used to exercise GVH SHIELD.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/logo.svg">
+</head>
+<body>
+<header class="top">
+  <img class="logo" src="assets/logo.svg" alt="Nocturne Studio" width="44" height="44">
+  <nav>
+    <a href="#work">Work</a>
+    <a href="#contact">Contact</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <p class="eyebrow">SEALED DEMO · GVH SHIELD</p>
+    <h1 id="headline">Design that disappears<br><span>behind the shield.</span></h1>
+    <p class="lede" id="sub">
+      This page is served as one encrypted <code>index.php</code>. The markup you
+      are reading never existed in the HTML source, and the images arrive from
+      an AES-256-CTR vault.
+    </p>
+    <div class="actions">
+      <button id="cta" class="btn">Reveal the secret</button>
+      <a class="btn ghost" href="#work">See the work</a>
+    </div>
+    <p class="hint" id="hint">The button is handled by an external, encrypted script.</p>
+  </section>
+
+  <section id="work" class="grid">
+    <article class="card">
+      <img src="assets/logo.svg" alt="" width="36" height="36">
+      <h2>Brand systems</h2>
+      <p>Small SVG icons are inlined as data URIs by the build.</p>
+    </article>
+    <article class="card">
+      <img src="assets/hero.png" alt="Abstract gradient artwork" width="320" height="200">
+      <h2>Art direction</h2>
+      <p>Large images stream from the encrypted vault with Range support.</p>
+    </article>
+    <article class="card">
+      <h2>বাংলা ডেমো</h2>
+      <p>UTF-8 survives the whole pipeline: বাংলা, 日本語, العربية, 😂🥰☠️</p>
+    </article>
+  </section>
+
+  <section id="contact" class="panel">
+    <h2>Say hello</h2>
+    <form id="form" action="/submit" method="post">
+      <label>Name <input name="name" value="Shacker" autocomplete="name"></label>
+      <label>Email <input name="email" type="email" placeholder="you@example.org"></label>
+      <label>Message <textarea name="message" rows="3">Is this really encrypted?</textarea></label>
+      <button class="btn" type="submit">Send</button>
+    </form>
+    <p class="hint">Point the form at your real backend before deploying.</p>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>SECURED BY @SHACKER_ENCRYPTION_bot</span>
+  <span>DEV Shacker · @Haki_xmw</span>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

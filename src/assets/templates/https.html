@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SECURE CONNECTION REQUIRED</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{min-height:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace}
+  body{display:flex;align-items:center;justify-content:center;padding:22px;color:#e9f2ff;background:#04060b;
+    background:radial-gradient(55% 55% at 20% 10%,#122a4a 0%,transparent 62%),radial-gradient(50% 50% at 90% 90%,#1a123a 0%,transparent 60%),#04060b}
+  .card{width:min(94vw,680px);text-align:center;border-radius:24px;padding:clamp(24px,5vw,52px);
+    border:1px solid rgba(120,180,255,.25);background:linear-gradient(165deg,rgba(14,26,48,.9),rgba(6,10,20,.92));
+    box-shadow:0 40px 120px rgba(0,0,0,.75),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(14px)}
+  .ico{font-size:52px;filter:drop-shadow(0 0 22px rgba(90,160,255,.55))}
+  h1{font-size:clamp(22px,5vw,36px);margin:16px 0 10px;letter-spacing:-.02em}
+  h1 span{color:#6ea8ff}
+  p{color:#9fb3d1;font-size:clamp(13px,3vw,15.5px);line-height:1.75;max-width:50ch;margin:0 auto}
+  .hint{margin-top:22px;border-radius:14px;padding:14px 18px;text-align:left;font-size:12.5px;line-height:1.8;color:#b9d4ff;
+    background:rgba(0,0,0,.35);border:1px solid rgba(120,180,255,.18)}
+  .hint b{color:#7cf7d4}
+  .foot{margin-top:22px;font-size:10px;letter-spacing:.2em;color:#5b7c9e}
+  .foot b{color:#8fc2ff}
+</style>
+</head>
+<body>
+<main class="card" role="alert">
+  <div class="ico">🔐</div>
+  <h1>HTTPS <span>REQUIRED</span></h1>
+  <p>This page is sealed with the browser WebCrypto API. WebCrypto is only available on <b>https://</b> origins (or localhost).</p>
+  <div class="hint">
+    <div>1. Open the site with <b>https://</b> instead of http://</div>
+    <div>2. Free certificates: Let's Encrypt, Cloudflare, or your host's SSL panel</div>
+    <div>3. Testing on Termux? <b>http://localhost</b> is a trusted origin</div>
+  </div>
+  <div class="foot">SECURED BY <b>@SHACKER_ENCRYPTION_bot</b> · GVH SHIELD</div>
+</main>
+</body>
+</html>

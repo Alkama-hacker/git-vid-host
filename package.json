@@ -1,0 +1,15 @@
+{
+  "name": "gvh-shield-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only harness for GVH SHIELD (php-wasm + jsdom)",
+  "scripts": {
+    "test": "bash tests/run_all.sh"
+  },
+  "devDependencies": {
+    "@php-wasm/node": "3.1.60",
+    "@php-wasm/universal": "3.1.60",
+    "jsdom": "^26.1.0"
+  }
+}

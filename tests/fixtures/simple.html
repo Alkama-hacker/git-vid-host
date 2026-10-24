@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="SomeBuilder 1.0 - author: secret@example.com">
+<title>Neon Coffee — Simple Test</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0b1020;color:#eaf0ff}
+  .hero{padding:60px 24px;background:linear-gradient(120deg,#1b2a6b,#4d1b6b)}
+  h1{font-size:40px;margin:0 0 12px}
+  .tag{display:inline-block;padding:6px 12px;border:1px solid #7c5cff;border-radius:99px;font-size:12px}
+</style>
+</head>
+<body>
+<!-- internal note: do not publish -->
+<div class="hero">
+  <span class="tag">SECRET SAUCE</span>
+  <h1 id="headline">Neon Coffee</h1>
+  <p id="sub">The design that must never leak.</p>
+  <button id="btn">Order now</button>
+</div>
+<script>
+  document.getElementById('btn').addEventListener('click',function(){
+    document.getElementById('sub').textContent='Order placed!';
+  });
+  document.addEventListener('DOMContentLoaded',function(){
+    document.body.setAttribute('data-ready','1');
+  });
+</script>
+</body>
+</html>
