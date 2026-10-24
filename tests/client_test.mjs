@@ -95,6 +95,34 @@ function installGlobals(win, srv, log, opts, redir) {
   } catch (e) { }
 }
 
+/**
+ * Every iframe the shell creates must get the same fake environment the top
+ * window has (crypto, XHR, patched location, capture hooks), otherwise the
+ * sealed frame cannot decrypt or would look "hooked" to the defence engine.
+ */
+function patchFrames(win, srv, opts, redir, writes) {
+  let proto;
+  try { proto = win.Node.prototype; } catch (e) { return; }
+  const orig = proto.appendChild;
+  Object.defineProperty(proto, 'appendChild', {
+    configurable: true, writable: true,
+    value: function (node) {
+      const out = orig.call(this, node);
+      try {
+        if (node && String(node.tagName).toUpperCase() === 'IFRAME' && node.contentWindow) {
+          const fw = node.contentWindow;
+          if (!fw.__gvhPatched) {
+            fw.__gvhPatched = true;
+            installGlobals(fw, srv, [], opts, redir);
+            documentWriteHooks(fw, writes);
+          }
+        }
+      } catch (e) { }
+      return out;
+    },
+  });
+}
+
 function documentWriteHooks(win, writes) {
   let buf = [];
   let writing = false;
@@ -113,7 +141,13 @@ function documentWriteHooks(win, writes) {
 
 function makeConsole(errors, logs) {
   const vc = new VirtualConsole();
-  vc.on('jsdomError', (e) => errors.push(String((e && e.message) || e)));
+  vc.on('jsdomError', (e) => {
+    errors.push(String((e && e.message) || e));
+    if (process.env.GVH_TRACE) {
+      const detail = (e && (e.detail || e));
+      errors.push('STACK ' + String((detail && detail.stack) || '').slice(0, 900));
+    }
+  });
   for (const level of ['log', 'warn', 'error', 'info']) {
     vc.on(level, (...a) => logs.push(level + ': ' + a.map(String).join(' ')));
   }
@@ -140,6 +174,7 @@ export async function boot(srv, opts = {}) {
     beforeParse(win) {
       installGlobals(win, srv, [], opts, redir);
       documentWriteHooks(win, writes);
+      patchFrames(win, srv, opts, redir, writes);
     },
   });
   const deadline = Date.now() + (opts.timeout || 25000);
@@ -148,9 +183,17 @@ export async function boot(srv, opts = {}) {
     await new Promise((r) => setTimeout(r, 40));
   }
   const out = writes[0] || '';
+  // the post-boot outer document: it must not carry a single node of the site
+  let topHtml = '';
+  let frameCount = 0;
+  try {
+    topHtml = dom.window.document.documentElement.outerHTML;
+    frameCount = dom.window.document.querySelectorAll('iframe').length;
+  } catch (e) { }
   try { dom.window.close(); } catch (e) { }
   return {
     shellHtml: html, cookie: res.setCookies[0] || '', finalHtml: out,
+    topHtml, frameCount,
     errors, logs, redirects: redir, shellStatus: res.status, shellHeaders: res.headers,
   };
 }

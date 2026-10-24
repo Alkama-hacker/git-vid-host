@@ -110,6 +110,7 @@ def cmd_build(args):
         "allow_webview": args.allow_webview,
         "allow_dynamic": args.allow_dynamic,
         "allow_iframe": args.allow_iframe,
+        "allow_hooks": args.allow_hooks,
         "allow_non_native": args.allow_non_native,
         "allow_print": args.allow_print,
         "allow_select": not args.no_select,
@@ -343,7 +344,8 @@ def interactive():
     args = argparse.Namespace(
         input=path, output=out or None, asset_mode="auto",
         deny_url=B.DEFAULTS["deny_url"], allow_crawlers=False, allow_webview=False,
-        allow_dynamic=False, allow_iframe=False, allow_non_native=False, allow_print=False, no_select=False,
+        allow_dynamic=False, allow_iframe=False, allow_non_native=False, allow_hooks=False,
+        allow_print=False, no_select=False,
         no_rightclick=False, inline_limit=8192, keep_comments=False, chunk_size=16384,
         force=False, title=None, ua_extra=None, quiet=False, json=False)
     return cmd_build(args)
@@ -367,7 +369,10 @@ def main(argv=None):
     b.add_argument("--allow-webview", action="store_true", help="do not block in-app webviews")
     b.add_argument("--allow-dynamic", action="store_true", help="allow dynamically injected scripts/iframes (weaker)")
     b.add_argument("--allow-iframe", action="store_true", help="allow embedding this page in an iframe (staging/own site)")
-    b.add_argument("--allow-non-native", action="store_true", help="skip native-function hook checks")
+    b.add_argument("--allow-non-native", action="store_true",
+                   help="skip the [native code] check (emulators / test browsers)")
+    b.add_argument("--allow-hooks", action="store_true",
+                   help="skip the clean-realm hook/tamper scan (weaker)")
     b.add_argument("--allow-print", action="store_true", help="do not block printing")
     b.add_argument("--no-select", action="store_true", help="allow text selection/copy")
     b.add_argument("--no-rightclick", action="store_true", help="allow the context menu")

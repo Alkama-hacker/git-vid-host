@@ -54,11 +54,18 @@ the repo):
 ## Files
 
 - `php_server.mjs` — HTTP harness over php-wasm (`startServer(index.php)`).
-- `client_test.mjs` — jsdom harness: `boot()` (splash → decrypted document) and
+- `client_test.mjs` — jsdom harness: `boot()` (splash → decrypted document; it
+  also installs the fake environment into every iframe the shell creates and
+  returns the post-boot **outer** DOM so frame isolation can be asserted) and
   `render()` (live DOM with resource loading, WebCrypto, XHR and redirect
   capture).
 - `api_suite.mjs` — server-side acceptance checks.
-- `browser_suite.mjs` — client-side acceptance checks + detection matrix.
+- `browser_suite.mjs` — client-side acceptance checks + detection matrix. New
+  groups: **frame isolation** (outer document holds only the iframe, no markup,
+  no decrypted text, no manifest, `<base>` shim, break-out navigation) and
+  **hook scan** (hooked `toString`/`defineProperty`/`getAttribute`/
+  `Document.write`/`addEventListener`/`Storage` must kill; one legit traffic
+  wrapper must not; three must; forged bridge key must be rejected) matrix.
 - `phpwasm_cli.mjs` — CLI bridge used by `GVH_PHP_MODE=wasm` (dev only).
 - `preview_server.mjs` — real HTTP preview of a sealed build on top of php-wasm
   (`node tests/preview_server.mjs /tmp/gvh-out/demo 8090`), useful to see the

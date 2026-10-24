@@ -38,6 +38,30 @@ check('no server-only comments left', !b.finalHtml.includes('this comment must m
 check('shell never contained the page', !/id="headline"/.test(b.shellHtml) && !b.shellHtml.includes('SECRET SAUCE'));
 check('shell has no manifest leakage of chunk keys', !/\"ct\":/.test(b.shellHtml));
 
+
+/* ------------------------------------------------------------------ */
+/* 1a. frame isolation: the outer document holds no site markup        */
+/* ------------------------------------------------------------------ */
+{
+  check('page is hosted in a frame', b.frameCount === 1, 'frames=' + b.frameCount);
+  check('outer document has no site markup',
+    !/id="headline"/.test(b.topHtml) && !/<h1/i.test(b.topHtml) && !/id="btn"/.test(b.topHtml),
+    b.topHtml.slice(0, 160));
+  const topBody = (b.topHtml.match(/<body[\s\S]*<\/body>/i) || [''])[0];
+  check('outer document has no decrypted text',
+    !/Neon Coffee|Order placed|headline/.test(topBody), topBody.slice(0, 160));
+  check('outer document keeps no splash/ui leftovers',
+    !/Decrypting secure layers/.test(b.topHtml) && !/id="pbar"/.test(b.topHtml) && !/pmsg/.test(b.topHtml));
+  check('outer document keeps no bootstrap (encrypted blob gone)',
+    !/MAN_B64/.test(b.topHtml) && !/var MX/.test(b.topHtml) && !/__GVH_BRIDGE__/.test(b.topHtml));
+  check('frame fills the viewport',
+    /position:\s*fixed/i.test(b.topHtml) && /width:\s*100%/i.test(b.topHtml) && /height:\s*100%/i.test(b.topHtml),
+    (b.topHtml.match(/<iframe[^>]*>/) || [''])[0].slice(0, 160));
+  check('frame is the only body child', (b.topHtml.match(/<iframe/g) || []).length === 1);
+  const hostKey = (b.shellHtml.match(/var HOSTKEY = "([^"]+)"/) || [])[1];
+  check('shell carries a frame-host key', !!hostKey && /^h_[0-9a-f]{12,16}$/.test(hostKey), hostKey);
+}
+
 const html = b.finalHtml;
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +98,8 @@ const w = r.win, d = r.doc;
 const cleanErrors = r.errors.filter((e) => !/Not implemented|Could not parse CSS/.test(e));
 
 check('document rendered', !!d.body && d.body.children.length > 0);
+check('inner document resolves relative URLs from the real page', d.baseURI === 'https://protected.example/', d.baseURI);
+check('inner document carries a <base> shim', /<base href="https:\/\/protected\.example\/"/.test(html), (html.match(/<base[^>]*>/) || [''])[0]);
 check('title preserved', d.title.length > 0, d.title);
 
 function byId(id) { return d.getElementById(id); }
@@ -221,6 +247,141 @@ await scenario('removed engine script', {}, 'credit', async (rr) => {
   const scripts = [...rr.doc.querySelectorAll('script')];
   scripts[scripts.length - 1].remove();
 });
+
+
+/* ------------------------------------------------------------------ */
+/* 2b. hook / tamper detection (clean-realm scan)                      */
+/* ------------------------------------------------------------------ */
+await scenario('hooked Function.prototype.toString', {}, 'deny', async (rr) => {
+  const orig = rr.win.Function.prototype.toString;
+  rr.win.Function.prototype.toString = function () { return orig.call(this); };
+  rr.win.Function.prototype.toString.toString = function () { return orig.call(orig); };
+}, 2600);
+await scenario('hooked Object.defineProperty', {}, 'deny', async (rr) => {
+  const orig = rr.win.Object.defineProperty;
+  rr.win.Object.defineProperty = function (o, p, d) { return orig.call(this, o, p, d); };
+}, 2600);
+await scenario('hooked Element.getAttribute (dom spy)', {}, 'deny', async (rr) => {
+  const orig = rr.win.Element.prototype.getAttribute;
+  rr.win.Element.prototype.getAttribute = function (n) { return orig.call(this, n); };
+}, 2600);
+await scenario('hooked Document.prototype.write', {}, 'deny', async (rr) => {
+  const orig = rr.win.Document.prototype.write;
+  rr.win.Document.prototype.write = function () { return orig.apply(this, arguments); };
+}, 2600);
+await scenario('hooked addEventListener (event spy)', {}, 'deny', async (rr) => {
+  const orig = rr.win.EventTarget.prototype.addEventListener;
+  rr.win.EventTarget.prototype.addEventListener = function () { return orig.apply(this, arguments); };
+}, 2600);
+await scenario('hooked storage (key thief)', {}, 'deny', async (rr) => {
+  const orig = rr.win.Storage.prototype.getItem;
+  rr.win.Storage.prototype.getItem = function (k) { return orig.call(this, k); };
+}, 2600);
+{
+  // a single analytics-style fetch wrapper is legitimate: the site must live
+  const rr = render(html, srv, {});
+  await sleep(900);
+  try {
+    const orig = rr.win.fetch;
+    if (orig) rr.win.fetch = function () { return orig.apply(this, arguments); };
+    const xo = rr.win.XMLHttpRequest.prototype.send;
+    rr.win.XMLHttpRequest.prototype.send = function () { return xo.apply(this, arguments); };
+  } catch (e) { }
+  await sleep(2600);
+  check('detect: one legit traffic wrapper stays alive', rr.writes.length === 0, rr.writes.length);
+  try { rr.close(); } catch (e) { }
+}
+{
+  // ...but three of them at once is a proxy/injector
+  const rr = render(html, srv, {});
+  await sleep(900);
+  try {
+    const w = rr.win;
+    if (w.fetch) { const o = w.fetch; w.fetch = function () { return o.apply(this, arguments); }; }
+    const xo = w.XMLHttpRequest.prototype.open;
+    w.XMLHttpRequest.prototype.open = function () { return xo.apply(this, arguments); };
+    const xs = w.XMLHttpRequest.prototype.send;
+    w.XMLHttpRequest.prototype.send = function () { return xs.apply(this, arguments); };
+    const ao = w.atob;
+    w.atob = function (s) { return ao.call(this, s); };
+    const bo = w.btoa;
+    w.btoa = function (s) { return bo.call(this, s); };
+  } catch (e) { }
+  await sleep(2800);
+  const killed = /NOOB|NICE TRY/i.test(rr.writes.join('')) || rr.redirects.some((u) => u.includes('access-denied'));
+  check('detect: three traffic hooks trip the soft tier', killed, 'writes=' + rr.writes.length);
+  try { rr.close(); } catch (e) { }
+}
+
+/* ------------------------------------------------------------------ */
+/* 2c. frame bridge: deny is delegated to the shell                    */
+/* ------------------------------------------------------------------ */
+{
+  const hostKey = (b.shellHtml.match(/var HOSTKEY = "([^"]+)"/) || [])[1];
+  let denied = 0;
+  const rr = render(html, srv, {
+    globals: { __GVH_BRIDGE__: { k: hostKey, deny: () => { denied++; }, credit: () => { }, dead: () => { } } },
+  });
+  await sleep(800);
+  check('own frame boots without a frame kill', rr.writes.length === 0, rr.writes.length);
+  const f12 = new rr.win.KeyboardEvent('keydown', { key: 'F12', keyCode: 123, bubbles: true, cancelable: true });
+  rr.doc.dispatchEvent(f12);
+  await sleep(600);
+  check('own frame delegates the wipe to the shell', denied > 0, 'denied=' + denied);
+  try { rr.close(); } catch (e) { }
+}
+{
+  // a forged bridge key must NOT be trusted
+  const rr = render(html, srv, {
+    topDifferent: true,
+    globals: { __GVH_BRIDGE__: { k: 'h_forged000000', deny: () => { } } },
+  });
+  await sleep(1200);
+  const killed = rr.writes.length > 0 || rr.redirects.some((u) => u.includes('access-denied'));
+  check('detect: forged frame bridge key', killed, 'writes=' + rr.writes.length);
+  try { rr.close(); } catch (e) { }
+}
+
+/* ------------------------------------------------------------------ */
+/* 2d. navigation break-out (frame -> real window)                     */
+/* ------------------------------------------------------------------ */
+{
+  const hostKey = (b.shellHtml.match(/var HOSTKEY = "([^"]+)"/) || [])[1];
+  const rr = render(html, srv, {
+    globals: { __GVH_BRIDGE__: { k: hostKey, deny: () => { }, credit: () => { }, dead: () => { } } },
+  });
+  await sleep(800);
+  const a = rr.doc.createElement('a');
+  a.href = '/next-page.html';
+  a.textContent = 'next';
+  rr.doc.body.appendChild(a);
+  a.dispatchEvent(new rr.win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await sleep(300);
+  // jsdom blocks real navigation, so a *navigation attempt* is the signal
+  const tried = rr.errors.some((e) => /Not implemented: navigation/.test(e)) ||
+    rr.redirects.some((u) => /next-page\.html/.test(u));
+  check('same-origin link breaks out of the frame', tried,
+    'redirects=' + JSON.stringify(rr.redirects.slice(0, 2)) + ' errors=' + rr.errors.slice(0, 1));
+  try { rr.close(); } catch (e) { }
+}
+{
+  // site code that handles the click itself must stay in control
+  const hostKey = (b.shellHtml.match(/var HOSTKEY = "([^"]+)"/) || [])[1];
+  const rr = render(html, srv, {
+    globals: { __GVH_BRIDGE__: { k: hostKey, deny: () => { }, credit: () => { }, dead: () => { } } },
+  });
+  await sleep(800);
+  const a = rr.doc.createElement('a');
+  a.href = '/spa-route.html';
+  a.textContent = 'spa';
+  a.addEventListener('click', (e) => e.preventDefault());
+  a.setAttribute('data-gvh', '1');
+  rr.doc.body.appendChild(a);
+  a.dispatchEvent(new rr.win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await sleep(300);
+  check('site-owned click handlers keep control', rr.redirects.length === 0, JSON.stringify(rr.redirects.slice(0, 2)));
+  try { rr.close(); } catch (e) { }
+}
 
 // redirect target + navigation attempt (jsdom blocks real navigation, so the
 // fallback page is expected there - which is exactly the documented fallback)

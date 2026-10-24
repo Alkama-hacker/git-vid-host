@@ -48,6 +48,7 @@ format. The Python side only orchestrates.
 | cookie name | `gv_<6 hex>` | session cookie |
 | query names `gw/pn/ps/pt/ap` | 6 hex each | API / nonce / signature / token / asset parameters |
 | `data_dir` | `vault_<8 hex>` | media vault folder |
+| `host_key` | `h_<16 hex>` | shell ↔ sealed-frame bridge marker (`CFG.hostKey`) |
 
 ---
 
@@ -269,9 +270,46 @@ Cross-Origin-Resource-Policy: same-origin
 7  verify the HTML credit comment is present                → else credit page
 8  replace __GVH_A_<id>__ tokens with vault URLs
 9  inject the engine before </body>, set the render guard
-10 document.open() / write(finalHtml) / close()
-11 call two decoy APIs to blur traffic analysis
+10 create a same-origin <iframe>, install __GVH_BRIDGE__ = {k: hostKey, deny, credit, dead}
+11 write <base href=real-URL> + finalHtml into the frame document
+12 strip the outer document: splash, styles, favicon link, own <script> (manifest)
+13 call two decoy APIs to blur traffic analysis
 ```
+
+### Frame isolation
+
+The decrypted markup never reaches the outer document. After step 12 the outer
+DOM is literally `<body><iframe data-gvh="1" …></iframe></body>` — no text, no
+forms, no keys. The engine runs inside the frame and checks every tick that
+`window.__GVH_BRIDGE__.k` still equals `CFG.hostKey`; a missing or altered
+bridge is treated as a frame tamper. Any kill is delegated to the shell
+(`BRIDGE.deny()`), so the shell wipes both documents and drives the real
+address bar. Navigation out of the frame is handled by two bubble-phase
+listeners (link click → `top.location.replace`, form submit → cloned form in the
+outer document, POST preserved); both skip events the site already handled.
+
+### Hook / tamper scan
+
+`buildWatch()` creates one hidden same-origin frame — a second JS realm — and
+uses **its** `Function.prototype.toString`, `Object.getOwnPropertyDescriptor`
+and `Object.getPrototypeOf` to read the true source of every watched built-in
+in the main realm. A wrapper is a different function object, so its real source
+differs; a hook that fakes `toString()` in the main realm cannot affect the
+answer produced by another realm's intrinsic. Two tiers:
+
+- **hard** (36 built-ins: `Function.prototype.*`, `Object.defineProperty`,
+  `Reflect.*`, `JSON.*`, `Document.prototype.write/querySelector*`,
+  `Element.prototype.getAttribute/setAttribute`, `Node.prototype.appendChild`,
+  `EventTarget.prototype.addEventListener`, `HTMLIFrameElement.prototype
+  .contentWindow/contentDocument`, `History.*`, `Storage.*`, …) — any mismatch
+  is an immediate kill with reason `hook:<path>`.
+- **soft** (`fetch`, XHR `open`/`send`/`setRequestHeader`, `eval`, `atob`,
+  `btoa`, `URL.createObjectURL`, `window.open`, `sendBeacon`,
+  `Location.replace/assign`) — the source is pinned at boot; only a *later*
+  change counts, and three at once kill. One analytics wrapper stays alive.
+
+A fresh realm must own different intrinsics (`cleanWin.Object !== window.Object`);
+if it does not, frame creation itself was hooked and the scan refuses to run.
 
 The engine then runs its own start-up checks and wires the detectors. It
 verifies its own script text still begins with the banner every 2.6 s and that
@@ -289,6 +327,9 @@ it is still attached to the document; otherwise it shows the credit-lock page.
 | iframe on another site | blocked by headers + JS |
 | DevTools / eruda | wiped page, redirect |
 | Bookmarklet / injected script | wiped page |
+| Read the outer DOM | only `<iframe>`: the real DOM lives one level down |
+| Hooked `fetch`/XHR/`defineProperty`/`toString` | clean-realm source comparison catches it |
+| Faked `toString` to hide a hook | detected — the answer comes from a second realm |
 | Remove the credit | credit-lock page |
 | Edit the credit | credit-lock page (banner is inside the PBKDF2 password) |
 | Hotlink media | 403 |

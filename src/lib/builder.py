@@ -421,6 +421,7 @@ DEFAULTS = {
     "allow_webview": False,
     "allow_dynamic": False,
     "allow_iframe": False,
+    "allow_hooks": False,
     "allow_non_native": False,
     "allow_print": False,
     "allow_select": True,
@@ -468,6 +469,7 @@ class Builder:
         self.ph_tok = "__GVH_T_" + token_hex(6).upper() + "__"
         self.cookie = "gv_" + token_hex(3)
         self.guard = "g_" + token_hex(8)
+        self.hostkey = "h_" + token_hex(8)
         self.data_dir = "vault_" + token_hex(4)
         self.mx = list(os.urandom(32))
         self.master = os.urandom(32)
@@ -528,11 +530,13 @@ class Builder:
             "iframe": not self.opt["allow_iframe"],
             "inject": not self.opt["allow_dynamic"],
             "native": not self.opt["allow_non_native"],
+            "hooks": not self.opt["allow_hooks"],
             "print": not self.opt["allow_print"],
             "dynamic": bool(self.opt["allow_dynamic"]),
         }
         defcfg = {
             "banner": brand.banner(),
+            "hostKey": self.hostkey,
             "deny": self.opt["deny_url"],
             "guard": self.guard,
             "uaExtra": self.opt["ua_extra"] or "",
@@ -545,7 +549,8 @@ class Builder:
         self.step("defense", "defence engine", bytes=len(engine_src.encode("utf-8")),
                   modules=["right-click", "shortcut-key", "devtools-heuristic", "eruda/vconsole",
                            "bookmarklet/injection", "webview", "puppeteer/headless", "iframe",
-                           "credit-banner", "native-hook", "print", "console-probe"])
+                           "credit-banner", "native-hook", "print", "console-probe",
+                           "hook/tamper-scan", "frame-isolation"])
 
         if self.opt.get("dry"):
             # analysis-only pass (gvh inspect): no PHP, no output written
@@ -668,6 +673,7 @@ class Builder:
             "block_bots": True,
             "allow_crawlers": bool(self.opt["allow_crawlers"]),
             "allow_iframe": bool(self.opt["allow_iframe"]),
+            "host_key": self.hostkey,
             "rate": 600,
         }
         cfg_res = self.php.run({"op": "cfg", "cfg": cfg})
@@ -1009,6 +1015,7 @@ class Builder:
         boot = boot.replace("@@BLOB@@", blob)
         boot = boot.replace("@@MX@@", json.dumps(self.mx))
         boot = boot.replace("@@IFRAME@@", "false" if self.opt["allow_iframe"] else "true")
+        boot = boot.replace("@@HOSTKEY@@", self.hostkey)
         boot = boot.replace("@@PAGES@@", js_json(pages_json))
         # keep the manifest placeholder for the PHP runtime
         boot = boot.replace("@@MANIFEST@@", self.ph_man)

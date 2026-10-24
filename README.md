@@ -169,7 +169,8 @@ Global: `--php /path/to/php`
 | `--allow-webview` | off | do not block in-app webviews |
 | `--allow-dynamic` | off | allow dynamic script/iframe injection (weaker) |
 | `--allow-iframe` | off | allow embedding the page in an iframe (staging, own-site embeds; disables XFO/`frame-ancestors` and the frame check) |
-| `--allow-non-native` | off | skip native-function hook checks (dev/testing only) |
+| `--allow-non-native` | off | skip the `[native code]` check (emulators, test browsers) |
+| `--allow-hooks` | off | skip the clean-realm hook/tamper scan (weaker; dev only) |
 | `--allow-print` | off | allow printing |
 | `--no-select` | off | allow text selection/copy |
 | `--no-rightclick` | off | allow the context menu |
@@ -248,9 +249,11 @@ Detectors (all configurable through build flags where noted):
 | Injection | MutationObserver on late `<script>`/`<iframe>`/`<object>`/`<embed>`, `javascript:` hrefs |
 | Bookmarklets | `designMode`, `contenteditable` on `<html>`/`<body>`, own script removed |
 | Copy | selection/copy/cut/drag blocked outside inputs, print blocked |
-| Hooks | native `Function.prototype.toString` check on `crypto.subtle`/`getRandomValues` |
+| Hooks | full clean-realm scan: a hidden same-origin frame exposes the *true* source of every watched built-in (`Function.prototype.toString`, `Object.defineProperty`, XHR `open`/`send`, `getAttribute`/`setAttribute`, `appendChild`, `addEventListener`, `history.pushState`, `Storage`, `JSON`, `Reflect`, `contentWindow`, …). Any replaced/wrapped built-in is caught even when the attacker fakes `toString`, because the answer comes from another realm |
+| Traffic hooks | `fetch`, XHR, `atob`/`btoa`, `window.open`, `sendBeacon`, `eval`/`Function` are baseline-pinned; a change after boot counts, three at once kills (one analytics wrapper is allowed) |
+| Frame integrity | the bridge key between shell and sealed frame is verified every tick; the frame cannot be re-parented or detached |
 | Traffic | decoy key APIs are called alongside real ones |
-| Rate limit | 180 key-API requests per minute per IP |
+| Rate limit | 600 key-API requests per minute per IP |
 
 **Design rules enforced in the code and the tests:**
 
@@ -261,6 +264,37 @@ Detectors (all configurable through build flags where noted):
   protect a specific gesture, and every detector is wrapped in `try/catch`.
 - The engine is injected **after** the page markup, so it cannot delay or alter
   the site's own code.
+
+### The outer DOM is empty (frame isolation)
+
+The protected document is never written into the page you can see in
+"Elements". The shell that PHP returns is a small, branded loader; once the
+payload is decrypted it creates a full-viewport **same-origin iframe** and
+writes the site inside *that* document. Immediately afterwards the loader
+deletes the splash markup, its styles, the favicon link and **its own
+`<script>` — including the encrypted manifest**. What is left in the outer
+document is:
+
+```html
+<body><iframe data-gvh="1" aria-label="protected content" …></iframe></body>
+```
+
+So a visitor who inspects the outer page finds no headlines, no forms, no text
+and no keys — the real DOM lives one level down, inside the sealed frame, which
+is also where the defence engine runs.
+
+Two details make this behaviour invisible to visitors:
+
+- a `<base>` shim is injected into the frame document, so relative links, forms
+  and assets resolve against the real URL instead of `about:blank`;
+- clicking a same-origin link (or submitting a form, including POST) is promoted
+  to the outer window, so a multi-page site never ends up with a frame inside a
+  frame. Handlers run in the bubble phase and bail out when the site's own code
+  already called `preventDefault()`, so SPA routers keep working.
+
+Detection inside the frame is delegated to the shell: the frame asks the shell
+to wipe both documents and navigate the real address bar to `--deny-url`, so a
+kill inside the frame cannot be contained by the frame.
 
 ---
 

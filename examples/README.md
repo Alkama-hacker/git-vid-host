@@ -19,13 +19,19 @@ A realistic one-page studio site that exercises every part of the pipeline:
 What to look at:
 
 1. **View source** — only the splash screen, the credit banner and an
-   encrypted blob. No markup, no CSS, no JS.
+   encrypted blob. No markup, no CSS, no JS. Once the page unlocks, the outer
+   document is reduced to a single `<iframe>`: the real DOM lives one level
+   down, inside the sealed frame.
 2. **The page works** — the button reacts, the form keeps its values, the image
    loads from `index.php?<secret>=<id>`.
 3. **Right click / F12 / Ctrl+Shift+I** — page wiped, redirect or the
    "Nice Try Hacker" fallback.
 4. **Edit the credit banner** in the generated file (e.g. in DevTools) — the
    credit-lock page appears within ~3 seconds.
+4b. **Hook something** in the console before the page unlocks, e.g.
+   `const o = fetch; fetch = (...a) => o(...a)` three times over (fetch, XHR
+   `open`, `atob`) — the hook scan wipes the page. A single wrapper is allowed
+   on purpose, so analytics code keeps working.
 5. **Curl it** — `curl -A "curl/8" http://localhost:8080/index.php` → HTTP 403
    and the fallback page.
 

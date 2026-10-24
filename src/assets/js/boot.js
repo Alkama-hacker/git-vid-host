@@ -19,6 +19,7 @@
   var MAN_B64 = "@@MANIFEST@@";
   var MX = @@MX@@;
   var BLOCKFRAME = @@IFRAME@@;
+  var HOSTKEY = "@@HOSTKEY@@";
   var PAGES = @@PAGES@@;
 
   var SELF = D.currentScript || D.scripts[D.scripts.length - 1];
@@ -110,14 +111,20 @@
     try { D.documentElement.innerHTML = html; } catch (e2) { }
     return false;
   }
+  function dropFrame() {
+    try { if (FRAME && FRAME.parentNode) FRAME.parentNode.removeChild(FRAME); } catch (e) { }
+    FRAME = null;
+  }
   function creditPage() {
     if (FAILED) return;
     FAILED = true;
+    dropFrame();
     render(PAGES.credit);
   }
   function denyPage() {
     if (FAILED) return;
     FAILED = true;
+    dropFrame();
     try { D.documentElement.style.display = 'none'; } catch (e) { }
     var shown = false;
     setTimeout(function () { if (!shown) { shown = true; render(PAGES.fallback); } }, 900);
@@ -129,12 +136,88 @@
   function dead(msg) {
     if (FAILED) return;
     FAILED = true;
+    dropFrame();
     var page = PAGES.offline;
     if (msg) {
       page = page.replace('<div class="code">',
         '<div style="color:#ffb3c0;font-size:13px;line-height:1.6;margin-top:16px;text-align:left">' + msg + '</div><div class="code">');
     }
     render(page);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* frame host: the protected document never lives in this DOM         */
+  /* ------------------------------------------------------------------ */
+  var FRAME = null;
+
+  function withBase(html, base) {
+    // An about:blank frame has no usable base URL, so relative links, forms
+    // and assets would resolve against "about:blank". One <base> fixes that.
+    try {
+      if (/<base[\s>]/i.test(html.slice(0, 6000))) return html;
+    } catch (e) { }
+    var tag = '<base href="' + String(base).replace(/"/g, '&quot;') + '">';
+    var m = html.match(/<head(?:\s[^>]*)?>/i);
+    if (m) return html.slice(0, m.index + m[0].length) + tag + html.slice(m.index + m[0].length);
+    m = html.match(/<html(?:\s[^>]*)?>/i);
+    if (m) {
+      var at = m.index + m[0].length;
+      return html.slice(0, at) + '<head>' + tag + '</head>' + html.slice(at);
+    }
+    return tag + html;
+  }
+
+  function scrubShell(keep) {
+    // Nothing of the sealed page may stay in the outer document: drop the
+    // splash markup, the inline styles and even this script (the encrypted
+    // manifest included). What remains is <body><iframe></iframe></body>.
+    try {
+      var body = D.body;
+      if (body) {
+        for (var i = body.childNodes.length - 1; i >= 0; i--) {
+          var node = body.childNodes[i];
+          if (node !== keep) body.removeChild(node);
+        }
+      }
+    } catch (e) { }
+    try { if (D.head) { var st = D.head.getElementsByTagName('style'); for (var j = st.length - 1; j >= 0; j--) st[j].parentNode.removeChild(st[j]); } } catch (e) { }
+    try { if (SELF && SELF.parentNode) { SELF.parentNode.removeChild(SELF); SELF.textContent = ''; } } catch (e) { }
+    try {
+      D.documentElement.style.cssText = 'height:100%;overflow:hidden;background:#060812';
+      if (D.body) D.body.style.cssText = 'margin:0;height:100%;overflow:hidden;background:#060812';
+    } catch (e) { }
+  }
+
+  function hostFrame(html) {
+    var f = D.createElement('iframe');
+    f.setAttribute('data-gvh', '1');
+    f.setAttribute('aria-label', 'protected content');
+    f.setAttribute('allowfullscreen', '');
+    f.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;border:0;' +
+      'display:block;background:#060812;z-index:2147483000;color-scheme:normal';
+    (D.body || D.documentElement).appendChild(f);
+    var F = f.contentWindow, FD = null;
+    try { FD = f.contentDocument || (F && F.document); } catch (e) { }
+    if (!F || !FD) return false;
+    var bridge = {
+      k: HOSTKEY,
+      n: hex(8),
+      base: baseURL(),
+      deny: function (why) { FRAME = f; denyPage(); },
+      credit: function () { FRAME = f; creditPage(); },
+      dead: function (msg) { FRAME = f; dead(msg); }
+    };
+    try { F.__GVH_BRIDGE__ = bridge; } catch (e) { return false; }
+    try {
+      FD.open();
+      FD.write(withBase(html, bridge.base));
+      FD.close();
+    } catch (e2) {
+      return false;
+    }
+    FRAME = f;
+    scrubShell(f);
+    return true;
   }
 
   /* ------------------------------------------------------------------ */
@@ -394,13 +477,9 @@
       try { W[MAN.guard] = 1; } catch (e) { }
       try { W.sessionStorage.setItem('gvh_render', String(START)); } catch (e) { }
       progress(100, 'shield online');
-      try {
-        D.open();
-        D.write(finalHtml);
-        D.close();
-      } catch (e) {
-        dead('This browser refused to render the sealed document.');
-      }
+      var hosted = false;
+      try { hosted = hostFrame(finalHtml); } catch (e) { hosted = false; }
+      if (!hosted) dead('This browser refused to open the protected frame.');
     });
   }).catch(function (err) {
     var m = String(err && err.message || err);

@@ -112,6 +112,15 @@ The front controller sends `Cache-Control: no-store` for the shell and
 A proxy that strips `Sec-Fetch-*` headers is fine; the session token is still
 required.
 
+**Iframes / CSP.** The sealed page renders itself inside a same-origin
+`about:blank` frame, so the host must not send a CSP that forbids frames
+(`frame-src 'self'` is enough; `frame-src 'none'` breaks the page). The
+generated headers already allow it. A tool that rewrites `document.write`
+(Rocket Loader, some "optimizers") breaks the boot — disable them.
+
+**Don't wrap the site in your own iframe** unless you built it with
+`--allow-iframe`; the shell blocks foreign parents by design.
+
 ---
 
 ## Troubleshooting

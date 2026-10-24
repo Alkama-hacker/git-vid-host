@@ -19,6 +19,9 @@
   var W = window, D = document, NAV = navigator;
   var DEAD = false, SCRIPT = D.currentScript || null;
   var BANNER = CFG.banner, DENY = CFG.deny, P = CFG.pages, FL = CFG.flags || {};
+  var BRIDGE = null;
+  try { BRIDGE = W.__GVH_BRIDGE__ || null; } catch (e) { BRIDGE = null; }
+  var OWN = !!(BRIDGE && BRIDGE.k === CFG.hostKey);
   var UA = (NAV.userAgent || '');
   var DESKTOP = !/Mobi|Android|iPhone|iPad|iPod|Mobile Safari/i.test(UA);
   var MO = null, TIMERS = [], SCORE = 0, PROBE = 0, CHROME_OPEN = false;
@@ -52,6 +55,13 @@
     // clear the screen first: even when the redirect is blocked the visitor
     // must not be able to read the protected design
     try { D.documentElement.style.display = 'none'; } catch (e) { }
+    // Inside the shield frame the *shell* owns the document: it wipes the
+    // frame, paints the fallback and navigates the real address bar.
+    if (OWN && BRIDGE && typeof BRIDGE.deny === 'function') {
+      try { D.documentElement.innerHTML = ''; } catch (e) { }
+      try { D.body.innerHTML = ''; } catch (e2) { }
+      try { BRIDGE.deny(reason); return; } catch (e3) { }
+    }
     var shown = false;
     var t = setTimeout(function () {
       if (!shown) { shown = true; paint(P.fallback); }
@@ -89,7 +99,7 @@
   /* ------------------------------------------------------------------ */
   /* 1. environment gates (hard signals -> immediate lock)              */
   /* ------------------------------------------------------------------ */
-  if (FL.iframe && W.top !== W.self) {
+  if (FL.iframe && !OWN && W.top !== W.self) {
     return kill('frame');
   }
   if (NAV.webdriver === true) {
@@ -110,9 +120,9 @@
   }
   if (FL.webview) {
     var WEBVIEW_UA = /;\s*wv\)|Version\/4\.\d|FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|MicroMessenger|GSA\/|Twitter|LinkedInApp|Pinterest|WhatsApp|WebView|Electron\/|Cordova|Capacitor/i;
-    var BRIDGE = W.ReactNativeWebView || W.Android || W.AndroidBridge || W.__TAURI__ || W.__TAURI_IPC__ || W.cordova;
+    var NATIVE = W.ReactNativeWebView || W.Android || W.AndroidBridge || W.__TAURI__ || W.__TAURI_IPC__ || W.cordova;
     var IOS_WEBVIEW = /iPhone|iPad|iPod/.test(UA) && /AppleWebKit/.test(UA) && !/Safari\//.test(UA);
-    if (WEBVIEW_UA.test(UA) || BRIDGE || IOS_WEBVIEW) {
+    if (WEBVIEW_UA.test(UA) || NATIVE || IOS_WEBVIEW) {
       return kill('webview');
     }
   }
@@ -128,7 +138,12 @@
       W.__driver_evaluate || W.__fxdriver_evaluate || W._selenium || W.__selenium) {
       return kill('automation');
     }
-    if (W.__REACT_DEVTOOLS_GLOBAL_HOOK__ || W.__VUE_DEVTOOLS_GLOBAL_HOOK__) { return kill('devtools'); }
+    if (W.__REACT_DEVTOOLS_GLOBAL_HOOK__ || W.__VUE_DEVTOOLS_GLOBAL_HOOK__ || W.__SVELTE_DEVTOOLS__ || W.__NUXT__DEVTOOLS__) {
+      return kill('devtools');
+    }
+    if (W.__nightmare || W._WEBDRIVER_ELEM_CACHE || W.__webdriver_script_fn || W.$chrome_asyncScriptInfo || W.$cdc_asdjflasutopfhvcZLmcfl_) {
+      return kill('automation');
+    }
     var ids = ['eruda', 'eruda-dev-tools', 'eruda-entry-btn', '__vconsole', 'vconsole', 'vconsole_btn'];
     for (var i = 0; i < ids.length; i++) {
       if (D.getElementById(ids[i])) { return kill('devtools'); }
@@ -186,6 +201,159 @@
       if (pts >= 3) return kill('headless');
     } catch (e) { }
   }
+
+
+  /* ------------------------------------------------------------------ */
+  /* 2b. hook / tamper detection                                        */
+  /* ------------------------------------------------------------------ */
+  /*  Every serious tool that inspects a page (extensions, devtools
+      injectors, eruda-style consoles, automation frameworks) works by
+      *replacing or wrapping built-ins*: Function.prototype.toString to hide
+      itself, Object.defineProperty to trap property reads, XHR/fetch to read
+      traffic, getAttribute/innerHTML to watch the DOM, crypto to steal keys.
+
+      Detection trick: spawn a hidden same-origin frame - a fresh JS realm -
+      and read the *true* source of each built-in with THAT realm's
+      Function.prototype.toString. A wrapper is a different function object,
+      so its real source differs; and a hook that fakes toString() in our
+      realm cannot fake the answer produced by another realm's intrinsic.
+
+      Two tiers:
+        tier 1 (hard)  - built-ins that no legitimate page replaces.
+        tier 2 (soft)  - built-ins that analytics/SPA code legitimately wraps;
+                         only a *change after boot* counts, 3+ changes kill.
+   */
+  var CLEAN = null, TABLE = [], HARD = 0, SOFT = 0;
+
+  var WATCH_HARD = [
+    'Function.prototype.toString', 'Function.prototype.call',
+    'Function.prototype.apply', 'Function.prototype.bind',
+    'Object.defineProperty', 'Object.getOwnPropertyDescriptor',
+    'Object.getOwnPropertyNames', 'Object.getPrototypeOf',
+    'Object.defineProperties', 'Object.freeze',
+    'Reflect.apply', 'Reflect.get', 'Reflect.defineProperty',
+    'JSON.parse', 'JSON.stringify',
+    'Document.prototype.createElement', 'Document.prototype.querySelector',
+    'Document.prototype.querySelectorAll', 'Document.prototype.getElementById',
+    'Document.prototype.write',
+    'Element.prototype.getAttribute', 'Element.prototype.setAttribute',
+    'Element.prototype.getElementsByTagName',
+    'Node.prototype.appendChild', 'Node.prototype.removeChild',
+    'Node.prototype.insertBefore', 'Node.prototype.replaceChild',
+    'EventTarget.prototype.addEventListener',
+    'EventTarget.prototype.removeEventListener',
+    'EventTarget.prototype.dispatchEvent',
+    'HTMLIFrameElement.prototype.contentWindow',
+    'HTMLIFrameElement.prototype.contentDocument',
+    'History.prototype.pushState', 'History.prototype.replaceState',
+    'Storage.prototype.getItem', 'Storage.prototype.setItem',
+    'MouseEvent.prototype.preventDefault'
+  ];
+  var WATCH_SOFT = [
+    // surfaces that analytics/SPA code legitimately wraps -> only a change
+    // *after* boot counts, and three of them at once is a red flag.
+    'fetch', 'XMLHttpRequest.prototype.open', 'XMLHttpRequest.prototype.send',
+    'XMLHttpRequest.prototype.setRequestHeader',
+    'window.eval', 'eval', 'window.Function',
+    'atob', 'btoa', 'URL.createObjectURL', 'window.open',
+    'navigator.sendBeacon', 'Location.prototype.replace', 'Location.prototype.assign'
+  ];
+
+
+  function src(ts, fn) {
+    try { return ts.call(fn); } catch (e) { return null; }
+  }
+
+  /* walk an own-descriptor chain so accessors are inspected without firing */
+  function dig(win, path, gopd, gop) {
+    var parts = String(path).split('.'), cur = win, i;
+    for (i = 0; i < parts.length; i++) {
+      if (cur == null) return null;
+      var name = parts[i];
+      if (name === 'window') { cur = win; continue; }
+      var chain = cur, d = null, guard = 0;
+      while (chain && guard++ < 24) {
+        try { d = gopd(chain, name); } catch (e) { d = null; }
+        if (d) break;
+        try { chain = gop ? gop(chain) : null; } catch (e2) { chain = null; }
+      }
+      if (!d) return null;
+      if (d.get || d.set) {
+        if (i === parts.length - 1) return d.get || d.set;
+        if (!d.get) return null;
+        try { cur = d.get.call(cur); } catch (e3) { return null; }
+        continue;
+      }
+      cur = d.value;
+    }
+    return cur;
+  }
+
+  function cleanRealm() {
+    var f = null, w = null;
+    try {
+      f = D.createElement('iframe');
+      f.setAttribute('data-gvh', '1');
+      f.setAttribute('aria-hidden', 'true');
+      f.setAttribute('tabindex', '-1');
+      f.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;border:0;' +
+        'opacity:0;pointer-events:none';
+      (D.body || D.documentElement).appendChild(f);
+      w = f.contentWindow;
+    } catch (e) { return null; }
+    if (!w || !w.Function || !w.Object) return null;
+    var ts = w.Function.prototype.toString;
+    // a fresh realm must own *different* intrinsic objects; if both realms
+    // share them, someone rewired the frame (or we were sealed in a proxy)
+    if (!ts || ts === W.Function.prototype.toString) return null;
+    if (w.Object === W.Object || w.JSON === W.JSON) return null;
+    return {
+      w: w, f: f, ts: ts,
+      gopd: w.Object.getOwnPropertyDescriptor,
+      gop: w.Object.getPrototypeOf
+    };
+  }
+
+  function buildWatch() {
+    CLEAN = cleanRealm();
+    if (!CLEAN) return;
+    var list = [{ a: WATCH_HARD, t: 1 }, { a: WATCH_SOFT, t: 2 }];
+    for (var l = 0; l < list.length; l++) {
+      for (var i = 0; i < list[l].a.length; i++) {
+        var p = list[l].a[i];
+        var ref = dig(CLEAN.w, p, CLEAN.gopd, CLEAN.gop);
+        if (!ref) continue;                       // not a built-in here: skip
+        var truth = src(CLEAN.ts, ref);
+        if (!truth) continue;
+        var mine = dig(W, p, Object.getOwnPropertyDescriptor, Object.getPrototypeOf);
+        TABLE.push({ p: p, t: list[l].t, truth: truth, base: mine ? src(CLEAN.ts, mine) : null });
+      }
+    }
+  }
+
+  function hookTick() {
+    if (DEAD || !FL.hooks || !CLEAN) return;
+    var hard = '', soft = 0, softFirst = '';
+    for (var i = 0; i < TABLE.length; i++) {
+      var it = TABLE[i];
+      var fn = dig(W, it.p, Object.getOwnPropertyDescriptor, Object.getPrototypeOf);
+      if (!fn) continue;
+      var now = src(CLEAN.ts, fn);
+      if (!now) continue;
+      if (it.t === 1) {
+        if (now !== it.truth) { hard = it.p; break; }
+      } else if (it.base && now !== it.base) {
+        soft++;
+        if (!softFirst) softFirst = it.p;
+      }
+    }
+    if (hard) { HARD++; return kill('hook:' + hard); }
+    if (soft) { SOFT = soft; }
+    if (soft >= 3) return kill('hooks:' + softFirst);
+  }
+
+  // the watch lists above are assigned here, so the scan is armed here too
+  buildWatch();
 
   /* ------------------------------------------------------------------ */
   /* 3. DOM injection / bookmarklet detection                           */
@@ -355,6 +523,79 @@
     } catch (e) { }
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* 5b. navigation: the page lives in a frame, links must not nest     */
+  /* ------------------------------------------------------------------ */
+  /*  Clicking a link inside the shield frame would load the next page
+      *inside* the frame - a frame in a frame. Instead the link is promoted
+      to the real window, exactly like a normal website. Same for forms:
+      a POST is replayed from the outer document, so it stays a POST.
+      Both handlers run in the bubble phase and bail out when the site's
+      own code already handled the event, so site behaviour is untouched.
+   */
+  function absUrl(u) {
+    try { return new W.URL(u, D.baseURI).href; } catch (e) { }
+    try { var a = D.createElement('a'); a.href = u; return a.href; } catch (e2) { }
+    return '';
+  }
+
+  function onLink(e) {
+    if (DEAD || !OWN || !e || e.defaultPrevented || e.button) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var n = e.target;
+    while (n && n.nodeType === 1 && n.tagName !== 'A') n = n.parentNode;
+    if (!n || n.nodeType !== 1 || n.tagName !== 'A') return;
+    if (n.hasAttribute('download')) return;
+    var tgt = String(n.getAttribute('target') || '').toLowerCase();
+    if (tgt && tgt !== '_self') return;
+    var href = n.getAttribute('href') || '';
+    if (!href || href.charAt(0) === '#') return;
+    if (/^(javascript|mailto|tel|sms|blob|data|about):/i.test(href)) return;
+    var abs = absUrl(href);
+    if (!abs || !/^https?:/i.test(abs)) return;
+    try { W.top.location.replace(abs); } catch (x) { return; }
+    try { e.preventDefault(); } catch (x2) { }
+  }
+
+  function onSubmit(e) {
+    if (DEAD || !OWN || !e || e.defaultPrevented) return;
+    var f = e.target;
+    if (!f || f.tagName !== 'FORM' || !BRIDGE) return;
+    var abs = absUrl(f.getAttribute('action') || BRIDGE.base || location.href);
+    if (!abs || !/^https?:/i.test(abs)) return;
+    var method = String(f.getAttribute('method') || 'get').toLowerCase() === 'post' ? 'post' : 'get';
+    try {
+      var TD = W.top.document;
+      var clone = TD.createElement('form');
+      clone.method = method;
+      clone.action = abs;
+      clone.setAttribute('data-gvh', '1');
+      clone.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:0;height:0';
+      var els = f.elements || [];
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i], name = el.name, type = String(el.type || '').toLowerCase();
+        var tag = String(el.tagName || '').toUpperCase();
+        if (!name || el.disabled) continue;
+        if (type === 'file' || type === 'submit' || type === 'button' || type === 'image' || type === 'reset') continue;
+        if ((type === 'checkbox' || type === 'radio') && !el.checked) continue;
+        var value = el.value;
+        if (tag === 'SELECT' && el.multiple) value = null;
+        if (value == null) continue;
+        var inp = TD.createElement('input');
+        inp.type = 'hidden';
+        inp.name = name;
+        inp.value = String(value);
+        clone.appendChild(inp);
+      }
+      (TD.body || TD.documentElement).appendChild(clone);
+      clone.submit();
+      var ref = clone;
+      setTimeout(function () { try { ref.parentNode.removeChild(ref); } catch (x) { } }, 1500);
+      try { e.preventDefault(); } catch (x2) { }
+    } catch (x3) { }
+  }
+
   /* ------------------------------------------------------------------ */
   /* 6. integrity loop                                                  */
   /* ------------------------------------------------------------------ */
@@ -371,7 +612,13 @@
       if (D.documentElement.getAttribute('contenteditable') !== null) return kill('bookmarklet');
       globalsCheck();
       nativeCheck();
-      if (FL.iframe && W.top !== W.self) return kill('frame');
+      hookTick();
+      if (OWN) {
+        var br = null;
+        try { br = W.__GVH_BRIDGE__; } catch (e2) { br = null; }
+        if (!br || br.k !== CFG.hostKey) return kill('frame-tamper');
+      }
+      if (FL.iframe && !OWN && W.top !== W.self) return kill('frame');
     } catch (e) { }
   }
 
@@ -389,6 +636,12 @@
     try {
       globalsCheck();
       nativeCheck();
+      hookTick();
+      if (OWN) {
+        var br = null;
+        try { br = W.__GVH_BRIDGE__; } catch (e2) { br = null; }
+        if (!br || br.k !== CFG.hostKey) return kill('frame-tamper');
+      }
       headlessCheck();
     } catch (e) { }
 
@@ -409,6 +662,11 @@
     }
     installStyle();
     watchDom();
+    if (OWN) {
+      // bubble phase: site handlers run first and keep their preventDefault
+      W.addEventListener('click', onLink, false);
+      W.addEventListener('submit', onSubmit, false);
+    }
 
     // a tiny invisible sentinel: removing it is a tamper signal
     try {
@@ -422,6 +680,10 @@
     TIMERS.push(setInterval(integrityTick, 2600));
     TIMERS.push(setInterval(devtoolsTick, 3800));
     TIMERS.push(setInterval(globalsCheck, 5000));
+    if (FL.hooks) {
+      TIMERS.push(setInterval(hookTick, 1700));
+      setTimeout(hookTick, 700);
+    }
     setTimeout(devtoolsTick, 1200);
   }
 
