@@ -50,7 +50,7 @@ The requested pipeline is implemented one-to-one:
 | 3 | Base64 the client-side content | the whole rewritten document is base64-encoded inside the PHP helper. |
 | 4 | Split base64 into chunks | `--chunk-size` (default 16 384 base64 chars) → as many chunks as needed (79 chunks for the 1 MB test page). |
 | 5 | AES-256, one random **50-character** key per chunk, keys server-side, one hashed API per key + fake APIs | content chunks: AES-256-GCM with `sha256(50-char key)`. Each chunk has its own hashed endpoint (`sha256(site|api|salt|index)[:32]`). 24 decoy endpoints answer with plausible fake records. |
-| 6 | Defence layer (right click, shortcuts, devtools, eruda, bookmarklets, webviews, headless, iframe, …) | 30+ detectors in the sealed engine — **no `debugger` statement and no debugger loop anywhere**. |
+| 6 | Defence layer (right click, shortcuts, devtools, eruda, bookmarklets, webviews, headless, iframe, …) | 20+ detector families in the sealed engine — **no `debugger` statement and no debugger loop anywhere**. |
 | 7 | Obfuscation + credit banner + credit checker | engine envelope: base64 → 50 chunks → AES-256-GCM per chunk → binary → reverse → PBKDF2-SHA256 (120 000 iterations) + AES-GCM → GVH-VM ARX layer → base64. Branded banner is prepended to the engine, to the bootstrap script and to the HTML (right after the doctype). Editing it shows the credit-lock page. |
 | 8 | Output a PHP file | `index.php` (+ optional encrypted media folder), plus an audit report written **next to** the output folder. |
 
@@ -354,6 +354,13 @@ Fixtures are generated on the fly (`tests/fixtures_gen.py`); no binaries are
 committed. `GVH_PHP_MODE=wasm` tells the CLI to use the php-wasm bridge instead
 of a system PHP binary (dev only).
 
+Want to see a sealed page in a real browser without installing PHP?
+
+```bash
+GVH_PHP_MODE=wasm ./gvh build examples/demo/index.html -o /tmp/demo --allow-iframe
+node tests/preview_server.mjs /tmp/demo 8090     # http://localhost:8090
+```
+
 ---
 
 ## Honest security notes
@@ -410,7 +417,6 @@ examples/demo/           a small site to try the tool on
 
 ---
 
-**SECURED BY [@SHACKER_ENCRYPTION_bot](https://t.me/SHACKER_ENCRYPTION_bot)** ·
-**DEV Shacker** · **@Haki_xmw**
+**SECURED BY @SHACKER_ENCRYPTION_bot** · **DEV Shacker** · **@Haki_xmw**
 
 Use it only on websites you own or are authorised to protect.
