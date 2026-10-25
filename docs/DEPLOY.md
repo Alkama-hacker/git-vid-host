@@ -27,7 +27,7 @@ Both files are written next to the output folder on purpose.
 |---|---|
 | PHP | 7.2 or newer (8.x recommended) |
 | Extensions | `openssl`, `zlib` (always compiled in on mainstream hosts) |
-| WebCrypto | HTTPS **required** (browsers disable `crypto.subtle` on plain HTTP) |
+| WebCrypto | HTTPS **required** (browsers disable `crypto.subtle` on plain HTTP). `http://localhost` works; plain-HTTP domains and LAN IPs show the **HTTPS REQUIRED** page. Behind a proxy send `X-Forwarded-Proto: https`. |
 | Writes | none — the site needs no database and no writable folder |
 
 `gvh check <folder>` runs a live smoke test against the PHP built-in server and

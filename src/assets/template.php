@@ -83,7 +83,7 @@ function gvh_html_headers()
     gvh_hdr('Referrer-Policy', 'same-origin');
     gvh_hdr('Permissions-Policy', 'interest-cohort=()');
     gvh_hdr('X-Robots-Tag', 'noindex, nofollow, noarchive');
-    $csp = "default-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; style-src 'self' 'unsafe-inline' data: https: http:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; font-src 'self' data: https: http:; connect-src 'self' https: http: wss: ws:; frame-src https: http:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action *;";
+    $csp = "default-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; style-src 'self' 'unsafe-inline' data: https: http:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; font-src 'self' data: https: http:; connect-src 'self' https: http: wss: ws:; frame-src 'self' about: blob: data: https: http:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action *;";
     $csp .= $allowFrame ? " frame-ancestors *" : " frame-ancestors 'none'";
     gvh_hdr('Content-Security-Policy', $csp);
     gvh_hdr('Cross-Origin-Resource-Policy', 'same-origin');

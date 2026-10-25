@@ -81,6 +81,13 @@ const html = b.finalHtml;
   check('boot rejects a tampered manifest', offline, tampered.finalHtml.slice(0, 80));
 }
 {
+  // plain HTTP: browsers do not expose crypto.subtle outside a secure context
+  const plain = await boot(srv, { globals: { crypto: {} } });
+  check('plain http shows the HTTPS-required page',
+    /HTTPS/i.test(plain.finalHtml) && /REQUIRED/i.test(plain.finalHtml) && !plain.finalHtml.includes('MAN_B64'),
+    plain.finalHtml.slice(0, 80));
+}
+{
   const tampered = await boot(srv, { webdriver: true });
   check('boot blocks a webdriver browser', /NOOB|edit my credit/.test(tampered.finalHtml), tampered.finalHtml.slice(0, 60));
 }

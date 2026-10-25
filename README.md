@@ -72,7 +72,10 @@ Everything runs offline. Nothing about the client's page leaves the machine.
 - PHP **7.2+** with `openssl` + `zlib` (both are standard on virtually every
   shared host)
 - **HTTPS** — WebCrypto is required and browsers disable it on plain HTTP.
-  `http://localhost` is the only exception.
+  `http://localhost` is the only exception. A sealed site therefore runs on
+  `https://yourdomain` (or `http://localhost` while testing) and shows the
+  "HTTPS REQUIRED" page on `http://yourdomain` or on a plain-HTTP LAN IP.
+  Behind a proxy/CDN, `X-Forwarded-Proto: https` is honoured.
 
 ### Termux
 

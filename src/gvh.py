@@ -260,7 +260,9 @@ def cmd_serve(args):
     say("  serving %s" % os.path.abspath(args.dir), C.D)
     say("  → http://%s:%d/index.php" % ("localhost" if host in ("127.0.0.1", "0.0.0.0") else host, port), C.C)
     if host != "127.0.0.1":
-        say("  note: WebCrypto needs https or localhost. Use localhost on this device.", C.Y)
+        say("  note: browsers only expose WebCrypto on https:// or localhost.", C.Y)
+        say("        http://<LAN-IP>:%d shows the HTTPS-REQUIRED page — open localhost" % port, C.Y)
+        say("        on this device, or put the site behind a real https host/tunnel.", C.Y)
     try:
         subprocess.call([php, "-S", "%s:%d" % (host, port), "-t", os.path.abspath(args.dir)])
     except KeyboardInterrupt:

@@ -969,6 +969,11 @@ class Builder:
         if store.remote:
             self.warn("%d external http(s) asset(s) cannot be sealed (CDN links stay public): %s"
                       % (len(set(store.remote)), ", ".join(sorted(set(store.remote))[:4])))
+        plain = [u for u in set(store.remote) if u.lower().startswith("http://")]
+        if plain:
+            self.warn("%d asset(s) load over plain http:// — browsers block mixed content on HTTPS, "
+                      "so they will be missing after deploy: %s"
+                      % (len(plain), ", ".join(sorted(plain)[:3])))
         if store.missing:
             self.warn("%d local asset(s) were not found on disk and were left untouched: %s"
                       % (len(set(store.missing)), ", ".join(sorted(set(store.missing))[:4])))

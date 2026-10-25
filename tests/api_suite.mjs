@@ -85,6 +85,12 @@ check('nosniff', shell.header('x-content-type-options') === 'nosniff');
   check('a normal top-level visit still loads', direct.status === 200 && direct.text().includes('MAN_B64'), direct.status);
 }
 check('session cookie set', /^gv_[a-z0-9]{6}=/.test((shell.setCookies[0] || '')), shell.setCookies[0]);
+{
+  const raw = (shell.rawSetCookies || [])[0] || '';
+  check('session cookie is HttpOnly', /;\s*HttpOnly/i.test(raw), raw);
+  check('session cookie is SameSite=Lax', /;\s*SameSite=Lax/i.test(raw), raw);
+  check('session cookie is Secure on https', /;\s*Secure/i.test(raw), raw);
+}
 check('shell has no raw page markup', !/<h1[^>]*id="headline"/.test(html) && !html.includes('class="hero"'));
 check('shell has credit', html.includes('@SHACKER_ENCRYPTION_bot') && html.includes('@Haki_xmw'));
 check('shell has splash', html.includes('Decrypting secure layers'));

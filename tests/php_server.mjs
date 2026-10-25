@@ -110,12 +110,14 @@ export async function startServer(indexPath, opts = {}) {
       const k = line.slice(0, i).trim().toLowerCase();
       (hdrs[k] = hdrs[k] || []).push(line.slice(i + 1).trim());
     }
-    const setCookies = (hdrs['set-cookie'] || []).map((c) => c.split(';')[0]);
+    const rawSetCookies = (hdrs['set-cookie'] || []).slice();
+    const setCookies = rawSetCookies.map((c) => c.split(';')[0]);
     return {
       status: doc.status,
       headers: hdrs,
       header: (k) => (hdrs[String(k).toLowerCase()] || [])[0],
       setCookies,
+      rawSetCookies,
       body: Buffer.from(doc.body_b64 || '', 'base64'),
       text: () => Buffer.from(doc.body_b64 || '', 'base64').toString('utf8'),
     };
