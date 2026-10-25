@@ -26,9 +26,15 @@ php.writeFile('/tool.php', code);
 if (inp) php.writeFile('/in.json', readFileSync(inp));
 if (out) php.writeFile('/out.json', '');
 
-const result = await php.run({
-  code: `<?php $GLOBALS['GVH_IN'] = '/in.json'; $GLOBALS['GVH_OUT'] = '/out.json'; require '/tool.php';`,
-});
+let result;
+try {
+  result = await php.run({
+    code: `<?php $GLOBALS['GVH_IN'] = '/in.json'; $GLOBALS['GVH_OUT'] = '/out.json'; require '/tool.php';`,
+  });
+} catch (err) {
+  // PHP exited (gvh_fail): the JSON it wrote still explains why
+  result = { exitCode: (err && err.response && err.response.exitCode) || 2, errors: '', text: '' };
+}
 if (out) {
   try {
     writeFileSync(out, php.readFileAsBuffer('/out.json'));
@@ -38,7 +44,13 @@ if (out) {
 }
 if (result.errors) console.error(result.errors);
 if (result.exitCode !== 0) {
-  console.error('PHP exit code', result.exitCode, result.text);
+  // gvh_fail() writes {ok:false,error:...} before exiting: surface it
+  let why = result.text || '';
+  try {
+    const doc = JSON.parse(readFileSync(out, 'utf8'));
+    if (doc && doc.error) why = doc.error;
+  } catch (e) { /* no output file */ }
+  console.error('PHP exit code', result.exitCode, why);
   process.exit(result.exitCode || 1);
 }
 if (!out && result.text) process.stdout.write(result.text);

@@ -200,6 +200,9 @@ class PhpBridge:
                         err = doc.get("error") or err
                     except Exception:
                         pass
+                # vault/password problems are user-facing: keep them short
+                if err.startswith("vault:"):
+                    raise RuntimeError(err[6:].strip()[:300])
                 raise RuntimeError("PHP crypto helper failed: %s" % err[:1200])
             with open(out, "r", encoding="utf-8") as fh:
                 doc = json.load(fh)
@@ -687,6 +690,12 @@ class Builder:
                 raise RuntimeError("Output folder not empty: %s (use --force)" % outdir)
         os.makedirs(outdir, exist_ok=True)
         index_path = os.path.join(outdir, "index.php")
+        # branded comment banner as the very first line of the sealed file
+        if not php_src.startswith("<?php " + brand.banner()):
+            if php_src.startswith("<?php\n"):
+                php_src = "<?php " + brand.banner() + "\n" + php_src[6:]
+            else:
+                php_src = brand.banner() + "\n" + php_src
         with open(index_path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(php_src)
         if files_mode:

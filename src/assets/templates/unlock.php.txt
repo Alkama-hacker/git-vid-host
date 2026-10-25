@@ -1,0 +1,240 @@
+<?php
+@@BANNER@@
+/**
+ * SHACKER SECURITY :: vault unlock page
+ * ---------------------------------------------------------------------------
+ * Drop this file next to the .gvhe container on any PHP 7.2+ host with the
+ * openssl extension, open it over HTTPS and type the password. The payload is
+ * decrypted in memory and streamed straight to the browser - nothing is ever
+ * written to disk on the server.
+ */
+error_reporting(0);
+ini_set('display_errors', '0');
+
+$GVH = array(
+    'container' => '@@CONTAINER@@',
+    'name'      => '@@NAME@@',
+    'kind'      => '@@KIND@@',
+    'size'      => @@SIZE@@,
+    'sizeHuman' => '@@SIZE_HUMAN@@',
+    'made'      => '@@MADE@@',
+    'iter'      => @@ITER@@,
+);
+
+$MAGIC = "GVHVAULT1\n";
+$error = '';
+$done = false;
+
+function gvh_nice($bytes)
+{
+    $u = array('B', 'KB', 'MB', 'GB', 'TB');
+    $i = 0;
+    $n = (float) $bytes;
+    while ($n >= 1024 && $i < 4) {
+        $n /= 1024;
+        $i++;
+    }
+    return ($i === 0 ? sprintf('%d %s', $n, $u[$i]) : sprintf('%.1f %s', $n, $u[$i]));
+}
+
+function gvh_fail($msg)
+{
+    throw new RuntimeException($msg);
+}
+
+/** read + validate the container header */
+function gvh_header($raw)
+{
+    global $MAGIC;
+    $m = strlen($MAGIC);
+    if (strlen($raw) < $m + 5 || substr($raw, 0, $m) !== $MAGIC) {
+        gvh_fail('This is not a GVH vault file.');
+    }
+    $len = unpack('N', substr($raw, $m, 4));
+    $len = $len[1];
+    if ($len < 2 || $len > 65536 || strlen($raw) < $m + 4 + $len) {
+        gvh_fail('The vault header is damaged.');
+    }
+    $json = substr($raw, $m + 4, $len);
+    $header = json_decode($json, true);
+    if (!is_array($header) || !isset($header['n'], $header['salt'], $header['iv'])) {
+        gvh_fail('The vault header is not readable.');
+    }
+    return array($header, $json, $m + 4 + $len);
+}
+
+/**
+ * Decrypt chunk $i. Returns the plaintext or throws.
+ * IV = 8 random bytes from the header + uint32 BE chunk index
+ * AAD = sha256(header json)
+ */
+function gvh_chunk($raw, $header, $hjson, $offset, $i, $key)
+{
+    $len = unpack('N', substr($raw, $offset, 4));
+    $len = $len[1];
+    $offset += 4;
+    if ($len < 1 || $offset + $len + 16 > strlen($raw)) {
+        gvh_fail('The vault file is truncated - re-upload it.');
+    }
+    $ct = substr($raw, $offset, $len);
+    $tag = substr($raw, $offset + $len, 16);
+    $pt = openssl_decrypt(
+        $ct,
+        'aes-256-gcm',
+        $key,
+        OPENSSL_RAW_DATA,
+        base64_decode($header['iv']) . pack('N', $i),
+        $tag,
+        hash('sha256', $hjson, true)
+    );
+    if ($pt === false) {
+        gvh_fail('Wrong password. Nothing was decrypted.');
+    }
+    return array($pt, $offset + $len + 16);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
+    $password = (string) $_POST['password'];
+    if (strlen($password) < 4) {
+        $error = 'The password must be at least 4 characters.';
+    } else {
+        $path = __DIR__ . '/' . $GVH['container'];
+        if (!is_file($path)) {
+            $error = 'The vault file "' . htmlspecialchars($GVH['container']) . '" is missing next to this page.';
+        } else {
+            try {
+                $raw = file_get_contents($path);
+                list($header, $hjson, $offset) = gvh_header($raw);
+                $key = hash_pbkdf2('sha256', $password, base64_decode($header['salt']),
+                                   (int) $header['iter'], 32, true);
+                // verify with the first chunk before sending any header
+                list($first, $next) = gvh_chunk($raw, $header, $hjson, $offset, 0, $key);
+                $name = preg_replace('/[^A-Za-z0-9._ -]/', '_', (string) $header['name']);
+                if ($name === '') {
+                    $name = 'decrypted.bin';
+                }
+                $done = true;
+                while (ob_get_level() > 0) {
+                    ob_end_clean();
+                }
+                header('Content-Type: application/octet-stream');
+                header('Content-Disposition: attachment; filename="' . $name . '"');
+                header('Content-Length: ' . (int) $header['size']);
+                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+                header('Pragma: no-cache');
+                header('X-Content-Type-Options: nosniff');
+                header('X-Robots-Tag: noindex, nofollow, noarchive');
+                echo $first;
+                $chunkCount = (int) $header['n'];
+                for ($i = 1; $i < $chunkCount; $i++) {
+                    list($pt, $next) = gvh_chunk($raw, $header, $hjson, $next, $i, $key);
+                    echo $pt;
+                }
+                flush();
+                exit;
+            } catch (Throwable $e) {
+                $error = $e->getMessage();
+                usleep(600000);
+            }
+        }
+    }
+}
+?><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SECURE VAULT · <?php echo htmlspecialchars($GVH['name']); ?></title>
+<style>
+  :root{--pink:#ff5c8a;--cyan:#39e6ff;--violet:#9d7bff;--bg:#05060e;--tx:#e9eeff;--dim:#8b96c4}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{min-height:100vh;display:grid;place-items:center;padding:22px;color:var(--tx);
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Noto Sans Bengali",monospace;
+    background:radial-gradient(60% 50% at 15% 0%,rgba(157,123,255,.22),transparent 62%),
+               radial-gradient(55% 55% at 90% 100%,rgba(57,230,255,.16),transparent 60%),var(--bg);
+    overflow-x:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;
+    background-image:radial-gradient(rgba(255,255,255,.09) 1px,transparent 1px);background-size:28px 28px;
+    mask-image:radial-gradient(circle at 50% 40%,transparent 25%,#000 80%);opacity:.35}
+  .card{position:relative;width:min(96vw,560px);border-radius:26px;padding:clamp(22px,5vw,40px);
+    border:1px solid rgba(160,180,255,.18);
+    background:linear-gradient(165deg,rgba(18,22,44,.92),rgba(6,8,18,.96));
+    box-shadow:0 40px 120px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06);
+    backdrop-filter:blur(16px);animation:in .6s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes in{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+  .badge{display:inline-flex;gap:8px;align-items:center;font-size:10px;letter-spacing:.24em;
+    text-transform:uppercase;color:#bfe9ff;border:1px solid rgba(57,230,255,.3);border-radius:999px;
+    padding:7px 14px;background:rgba(57,230,255,.07)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);
+    animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.25;transform:scale(.8)}}
+  .lock{font-size:44px;margin:20px 0 12px;filter:drop-shadow(0 8px 26px rgba(157,123,255,.6))}
+  h1{font-size:clamp(19px,4.4vw,25px);letter-spacing:-.02em;margin-bottom:8px}
+  h1 b{background:linear-gradient(95deg,var(--violet),var(--cyan));-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  .file{font-size:12.5px;color:#a9b6e2;word-break:break-all;margin:10px 0 4px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 22px}
+  .tag{font-size:10.5px;letter-spacing:.08em;color:#9fb0dd;border:1px solid rgba(160,180,255,.16);
+    border-radius:9px;padding:6px 10px;background:rgba(255,255,255,.03)}
+  label{display:block;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:9px}
+  .field{display:flex;gap:10px;align-items:center;border:1px solid rgba(160,180,255,.22);
+    border-radius:14px;padding:4px 6px 4px 16px;background:rgba(4,6,16,.7);
+    transition:border-color .2s,box-shadow .2s}
+  .field:focus-within{border-color:rgba(157,123,255,.7);box-shadow:0 0 0 4px rgba(157,123,255,.12)}
+  .field span{color:var(--violet);font-size:15px}
+  input[type=password]{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--tx);
+    font:inherit;font-size:15px;padding:13px 0;letter-spacing:.22em}
+  button{border:0;border-radius:11px;padding:13px 18px;font:inherit;font-size:12px;font-weight:600;
+    letter-spacing:.08em;color:#0a0d1a;cursor:pointer;
+    background:linear-gradient(120deg,var(--cyan),var(--violet));transition:transform .15s,filter .2s;
+    white-space:nowrap}
+  button:hover{filter:brightness(1.1);transform:translateY(-1px)}
+  button:active{transform:translateY(0) scale(.98)}
+  .err{margin-top:18px;border-radius:13px;padding:13px 15px;font-size:12.5px;line-height:1.6;
+    color:#ffc2d2;background:rgba(255,60,90,.09);border:1px solid rgba(255,60,90,.3);
+    animation:shake .4s ease}
+  @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+  .hint{margin-top:20px;font-size:11px;line-height:1.8;color:#7684ad}
+  .hint b{color:#b9c9f5}
+  .foot{margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06);
+    font-size:9.5px;letter-spacing:.2em;color:#4e587c;text-align:center}
+  .foot b{color:#8fa6e8}
+</style>
+</head>
+<body>
+<main class="card" role="main">
+  <div class="badge"><i class="dot"></i> Shacker Security · sealed vault</div>
+  <div class="lock">🔐</div>
+  <h1>This file is <b>encrypted</b></h1>
+  <div class="file"><?php echo htmlspecialchars($GVH['name']); ?></div>
+  <div class="meta">
+    <span class="tag">AES-256-GCM</span>
+    <span class="tag">PBKDF2 · <?php echo number_format((int) $GVH['iter']); ?> rounds</span>
+    <span class="tag"><?php echo htmlspecialchars(gvh_nice((int) $GVH['size'])); ?></span>
+    <span class="tag"><?php echo htmlspecialchars($GVH['kind']); ?></span>
+  </div>
+
+  <?php if ($error !== ''): ?>
+    <div class="err"><?php echo htmlspecialchars($error); ?></div>
+  <?php endif; ?>
+
+  <form method="post" autocomplete="off">
+    <label for="password">Vault password</label>
+    <div class="field">
+      <span>❯</span>
+      <input id="password" name="password" type="password" required minlength="4"
+             autofocus placeholder="••••••••••••" spellcheck="false">
+      <button type="submit">UNLOCK</button>
+    </div>
+  </form>
+
+  <div class="hint">
+    <b>Nothing is stored.</b> The password is used once, in memory, to derive the
+    key - the server never writes the decrypted file to disk.
+  </div>
+  <div class="foot">SECURED BY <b>@@CREDIT@@</b> · DEV @@DEV@@ · @@DEV_USER@@</div>
+</main>
+</body>
+</html>

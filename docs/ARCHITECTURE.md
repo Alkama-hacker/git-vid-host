@@ -337,3 +337,93 @@ it is still attached to the document; otherwise it shows the credit-lock page.
 
 See the honest limitations in the main README: a browser that can display the
 page can eventually be made to reveal it.
+
+---
+
+## 12. Vault containers (files, folders, zips)
+
+`gvh secure` / `gvh vault` (and the project mode of the interactive terminal)
+use a second, unrelated container: `GVHVAULT1`. It is implemented once in
+`src/lib/crypt_build.php` (`vault_seal`, `vault_open`, `vault_info`) and driven
+from Python by `src/lib/vault.py`. The same PHP runs natively (Termux, Debian)
+or inside php-wasm (tests / no system PHP).
+
+### Wire format
+
+```
+"GVHVAULT1\n"                 10-byte magic
+uint32 BE                     header length
+header JSON                   bound to every chunk as GCM additional data
+repeat n times:
+  uint32 BE                   ciphertext length
+  ciphertext                  that many bytes
+  16 bytes                    GCM tag
+```
+
+header fields: `v, name, kind, size, sha256, salt, iv, iter, chunk, n, made`.
+
+| Piece | Value |
+|---|---|
+| cipher | AES-256-GCM (`openssl_encrypt` / `openssl_decrypt`) |
+| key | `PBKDF2-SHA256(password, salt, 150000, 32 bytes)` |
+| salt | 16 random bytes, per container |
+| IV | 8 random bytes from the header ‖ uint32 BE chunk index → unique per chunk |
+| AAD | `sha256(header JSON)` — any edit to name/size/iter breaks every tag |
+| chunk | 1 MiB plaintext |
+| integrity | per-chunk GCM tag + `sha256(whole plaintext)` in the header |
+
+The chunk index in the IV is what makes truncation/reordering detectable, and
+the AAD is what makes the metadata (including the original filename) authentic.
+`gvh unlock` also verifies the final SHA-256 and size before touching the disk,
+so a half-written decrypt is never left behind.
+
+### Native vs wasm
+
+| | native PHP (`php` on PATH) | php-wasm bridge |
+|---|---|---|
+| input | `in_path` / `vault_path`, streamed | `data_b64` / `vault_b64` |
+| output | `out_path` | `container_b64` / `data_b64` |
+| limit | disk / memory | 24 MiB (`WASM_LIMIT`) |
+
+Sealing native PHP writes the container directly with `fopen`/`fwrite`, so a
+500 MB video does not become a 700 MB base64 string in memory.
+
+### Generated `unlock.php`
+
+`src/assets/templates/unlock.php.txt` is rendered by `vault.render_unlock()`
+with the container name, payload name, kind, size, iteration count and the
+branded banner. At runtime the page:
+
+1. validates magic + header length, decodes the JSON header;
+2. derives the key with `hash_pbkdf2` and **authenticates chunk 0 first**;
+3. only on success sends `Content-Type: application/octet-stream`,
+   `Content-Disposition: attachment` and streams chunk 0 → n-1;
+4. on failure re-renders the form with a short message (and a 0.6 s delay).
+
+No plaintext ever touches the server's disk. `noindex`, `no-store`,
+`X-Content-Type-Options: nosniff` are always sent.
+
+### Project folders
+
+`vault.ensure_root()` creates `~/Shacker-Security/` (overridable with
+`$GVH_VAULT` or `--vault`) with `README.txt` and `projects.json`.
+`vault.project_dir()` makes `Shacker-Security/<pretty-name>/`, and
+`vault.secure()` fills it:
+
+* website target → `builder.build()` output (`index.php`, maybe `vault_*`),
+  `report.json`, `DEPLOY.txt`, `project.txt`, `AUDIT.json`
+* file / folder / zip → `<name>.gvhe`, `unlock.php`, `project.txt`, `AUDIT.json`
+
+`project.txt` is a human card that is safe to upload; `AUDIT.json` holds the
+local build report and must never leave the machine. The ledger is a plain
+JSON list (`project, kind, made, bytes, source`).
+
+### Tests
+
+`tests/vault_suite.mjs` (33 checks) runs the real PHP helper and asserts:
+byte-identical round-trip for a file and for a 3 MiB / 4-chunk payload, wrong
+password and flipped-byte rejection, no output file on failure, folder → zip →
+decrypt, project-folder layout, ledger, credit card text, a website target, the
+`<?php /*!` first-line banner, and — most importantly — that the generated
+`unlock.php` streams the exact original bytes when POSTed a correct password and
+streams nothing when given a wrong one.

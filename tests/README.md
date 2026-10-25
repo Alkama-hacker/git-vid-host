@@ -4,6 +4,7 @@ Two independent layers are tested on top of the **real** runtime:
 
 | Layer | Engine | What it proves |
 |---|---|---|
+| Vault | `@php-wasm/node` (PHP 8.3) | files/folders/zips seal and reopen byte-identically; wrong password and tampering fail; the generated `unlock.php` streams the payload |
 | Server | `@php-wasm/node` (PHP 8.3) | the generated `index.php` behaves like a web app: headers, sessions, key APIs, assets, Range, rate limit |
 | Browser | `jsdom` + Node `webcrypto` | the sealed page boots, decrypts, renders and defends itself like a browser |
 
@@ -18,7 +19,7 @@ npm install        # @php-wasm/node, @php-wasm/universal, jsdom
 ## Run
 
 ```bash
-bash tests/run_all.sh       # builds 5 fixtures + the demo, runs both suites on each
+bash tests/run_all.sh       # vault suite + 5 fixtures + the demo, all layers each
 ```
 
 or individually:
@@ -32,6 +33,7 @@ node tests/browser_suite.mjs /tmp/o/simple tests/fixtures/simple.html
 Other scripts:
 
 ```bash
+node tests/vault_suite.mjs    # Shacker-Security vault: seal/open/tamper/unlock.php (33 checks)
 node tests/codec_test.mjs     # PHP envelope -> browser decoder round-trip (15 checks)
 node tests/vm_selftest.mjs    # GVH-VM parity between PHP and JS
 node tests/e2e.mjs /tmp/o/simple        # quick boot check

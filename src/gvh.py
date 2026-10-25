@@ -25,6 +25,8 @@ sys.path.insert(0, HERE)
 
 from lib import brand  # noqa: E402
 from lib import builder as B  # noqa: E402
+from lib import tui as UI  # noqa: E402
+from lib import vault as V  # noqa: E402
 
 VERSION = B.VERSION
 
@@ -225,12 +227,20 @@ def cmd_doctor(args):
         ok = False
     node = shutil.which("node")
     say("  node     : %s (optional, only for the dev test-suite)" % (node or "not installed"), C.D)
+    root = V.expand(os.environ.get("GVH_VAULT") or os.path.join(
+        os.path.expanduser("~"), "Shacker-Security"))
+    if os.path.isdir(root):
+        projects = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+        say("  vault    : %s  (%d project%s)" % (root, len(projects), "" if len(projects) == 1 else "s"), C.D)
+    else:
+        say("  vault    : %s  (will be created on first use)" % root, C.D)
     say("  platform : %s %s" % (sys.platform, os.uname().machine if hasattr(os, "uname") else ""), C.D)
     termux = "com.termux" in os.environ.get("PREFIX", "") or os.path.exists("/data/data/com.termux")
     say("  termux   : %s" % ("yes" if termux else "no"), C.D)
     say()
     if ok:
-        say("  ✔ ready: gvh build page.html", C.G)
+        say("  ✔ ready: ./gvh        (interactive terminal)", C.G)
+        say("           ./gvh build page.html", C.D)
     else:
         say("  ✖ fix the items above first", C.R)
     return 0 if ok else 1
@@ -353,6 +363,80 @@ def interactive():
     return cmd_build(args)
 
 
+
+
+# ---------------------------------------------------------------------------
+# secure vault (files, folders, zips) + interactive terminal
+# ---------------------------------------------------------------------------
+def cmd_vault(args):
+    target = V.expand(args.path)
+    if not os.path.exists(target):
+        say("✖ path not found: %s" % target, C.R)
+        return 2
+    password = args.password
+    if password is None and getattr(args, "password_stdin", False):
+        password = sys.stdin.readline().rstrip("\n")
+    try:
+        res = UI.one_shot(target, project=args.name, password=password, vault_root=args.vault,
+                          php_cmd=getattr(args, "php", None))
+    except Exception as exc:  # noqa: BLE001
+        say("✖ %s" % exc, C.R)
+        return 2
+    if args.json:
+        print(json.dumps({k: v for k, v in res.items() if k not in ("card", "audit")},
+                         ensure_ascii=False, indent=2))
+        return 0
+    rule("SECURED")
+    say("  project : %s" % res["project"], C.G)
+    say("  folder  : %s" % res["dir"], C.G)
+    if res["kind"] == "website":
+        say("  index   : %s  (%s)" % (res["index"], B.human(res["bytes"])), C.D)
+        say("  upload  : the whole folder, PHP 7.2+ and HTTPS required", C.D)
+    else:
+        say("  payload : %s  →  %s" % (B.human(res["plain"]), B.human(res["bytes"])), C.D)
+        say("  files   : %s + unlock.php" % res["container"], C.D)
+        say("  upload  : both files, then open unlock.php in a browser", C.D)
+    say("  card    : %s" % res["card"], C.D)
+    say("  private : %s  (never upload)" % res["audit"], C.D)
+    return 0
+
+
+def cmd_unlock(args):
+    src = V.expand(args.path)
+    container = src
+    if os.path.isdir(src):
+        found = [f for f in os.listdir(src) if f.endswith(".gvhe")]
+        if not found:
+            say("✖ no .gvhe container in %s" % src, C.R)
+            return 2
+        container = os.path.join(src, found[0])
+    if not os.path.isfile(container):
+        say("✖ container not found: %s" % container, C.R)
+        return 2
+    password = args.password
+    if password is None:
+        password = UI.ask_secret("VAULT PASSWORD", "the one you typed when sealing")
+    out = args.output or os.path.splitext(container)[0]
+    engine = V.VaultEngine()
+    ok, why = engine.available()
+    if not ok:
+        say("✖ %s" % why, C.R)
+        return 2
+    try:
+        meta = engine.open(container, password, out)
+    except Exception as exc:  # noqa: BLE001
+        say("✖ %s" % exc, C.R)
+        return 2
+    say("  ✔ decrypted : %s" % out, C.G)
+    say("  original    : %s" % meta.get("meta", {}).get("name", "?"), C.D)
+    return 0
+
+
+def cmd_tui(args):
+    return UI.run(vault_root=args.vault, php_cmd=getattr(args, "php", None),
+                  no_anim=args.no_anim)
+
+
 # ---------------------------------------------------------------------------
 def main(argv=None):
     p = argparse.ArgumentParser(prog="gvh", description="GVH SHIELD — HTML copy guard for Termux/PHP",
@@ -407,13 +491,46 @@ def main(argv=None):
     c.add_argument("dir")
     c.set_defaults(func=cmd_check)
 
+    t = sub.add_parser("tui", help="open the interactive terminal (default with no args)")
+    t.add_argument("--vault", help="where Shacker-Security lives (default ~/Shacker-Security)")
+    t.add_argument("--no-anim", action="store_true", help="no animation (fast / scripted)")
+    t.set_defaults(func=cmd_tui)
+
+    va = sub.add_parser("vault", help="secure a file / folder / zip into Shacker-Security")
+    va.add_argument("path")
+    va.add_argument("--name", help="project folder name (default: a pretty random one)")
+    va.add_argument("--password", help="vault password (prefer --password-stdin)")
+    va.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
+    va.add_argument("--vault", help="where Shacker-Security lives (default ~/Shacker-Security)")
+    va.add_argument("--json", action="store_true")
+    va.set_defaults(func=cmd_vault)
+
+    se = sub.add_parser("secure", help="alias of `vault`")
+    se.add_argument("path")
+    se.add_argument("--name")
+    se.add_argument("--password")
+    se.add_argument("--password-stdin", action="store_true")
+    se.add_argument("--vault")
+    se.add_argument("--json", action="store_true")
+    se.set_defaults(func=cmd_vault)
+
+    un = sub.add_parser("unlock", help="decrypt a .gvhe vault locally")
+    un.add_argument("path")
+    un.add_argument("-o", "--output")
+    un.add_argument("--password")
+    un.set_defaults(func=cmd_unlock)
+
     v = sub.add_parser("version", help="print version")
     v.set_defaults(func=cmd_version)
 
     args = p.parse_args(argv)
     if not getattr(args, "cmd", None):
-        if len(sys.argv) == 1 and sys.stdin.isatty():
-            return interactive()
+        if sys.stdin.isatty():
+            return UI.run(php_cmd=getattr(args, "php", None))
+        UI.T.anim = False
+        UI.banner()
+        print("  nothing to do yet: this is an interactive tool.")
+        print("  run `gvh` in a real terminal, or use one of these:\n")
         p.print_help()
         return 0
     return args.func(args)

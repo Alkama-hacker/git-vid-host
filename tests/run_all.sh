@@ -9,6 +9,10 @@ FAIL=0
 
 python3 tests/fixtures_gen.py "$SITES" > /tmp/gvh-sites.json || exit 1
 
+echo
+echo "================ VAULT ================"
+node tests/vault_suite.mjs || FAIL=1
+
 for name in simple rich media big unicode; do
   echo
   echo "================ BUILD $name ================"

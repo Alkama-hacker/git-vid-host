@@ -302,6 +302,124 @@ function gvh_asset_ctr($bytes, $key32, $iv16)
     return $ct;
 }
 
+
+/* ------------------------------------------------------------------------- */
+/* secure vault (files, folders, zips -> one encrypted container)             */
+/* ------------------------------------------------------------------------- */
+/**
+ * Container layout
+ *
+ *   "GVHVAULT1\n"                      11-byte magic
+ *   uint32 BE  header length
+ *   header JSON (see gvh_vault_header)  bound as GCM additional data
+ *   for each chunk:
+ *       uint32 BE ciphertext length
+ *       ciphertext
+ *       16-byte GCM tag
+ *
+ * Key  : PBKDF2-SHA256(password, salt, iter, 32 bytes)
+ * IV   : 8 random bytes from the header + uint32 BE chunk index (12 bytes)
+ * AAD  : sha256(header JSON) - so the metadata cannot be edited
+ */
+define('GVH_VAULT_MAGIC', "GVHVAULT1\n");
+
+function gvh_vault_key($password, $salt, $iter)
+{
+    return hash_pbkdf2('sha256', $password, $salt, (int) $iter, 32, true);
+}
+
+function gvh_vault_seal($bytes, $password, $name, $kind, $iter, $chunk)
+{
+    if ($password === '' || strlen($password) < 4) {
+        gvh_fail('vault: the password must be at least 4 characters');
+    }
+    $salt = random_bytes(16);
+    $ivp = random_bytes(8);
+    $key = gvh_vault_key($password, $salt, $iter);
+    $size = strlen($bytes);
+    $n = max(1, (int) ceil($size / $chunk));
+    $header = array(
+        'v' => 1,
+        'name' => $name,
+        'kind' => $kind,
+        'size' => $size,
+        'sha256' => hash('sha256', $bytes),
+        'salt' => base64_encode($salt),
+        'iv' => base64_encode($ivp),
+        'iter' => (int) $iter,
+        'chunk' => (int) $chunk,
+        'n' => $n,
+        'made' => gmdate('c'),
+    );
+    $hjson = json_encode($header, JSON_UNESCAPED_SLASHES);
+    $aad = hash('sha256', $hjson, true);
+    $out = GVH_VAULT_MAGIC . pack('N', strlen($hjson)) . $hjson;
+    for ($i = 0; $i < $n; $i++) {
+        $part = substr($bytes, $i * $chunk, $chunk);
+        $iv = $ivp . pack('N', $i);
+        $tag = '';
+        $ct = openssl_encrypt($part, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $aad, 16);
+        if ($ct === false) {
+            gvh_fail('vault: AES-256-GCM failed');
+        }
+        $out .= pack('N', strlen($ct)) . $ct . $tag;
+    }
+    return array($out, $header);
+}
+
+function gvh_vault_header($container)
+{
+    $magic = strlen(GVH_VAULT_MAGIC);
+    if (strlen($container) < $magic + 5 || substr($container, 0, $magic) !== GVH_VAULT_MAGIC) {
+        gvh_fail('vault: not a GVH vault file');
+    }
+    $hl = unpack('N', substr($container, $magic, 4));
+    $hl = $hl[1];
+    if ($hl < 2 || $hl > 65536 || strlen($container) < $magic + 4 + $hl) {
+        gvh_fail('vault: damaged header');
+    }
+    $hjson = substr($container, $magic + 4, $hl);
+    $header = json_decode($hjson, true);
+    if (!is_array($header) || !isset($header['n'], $header['salt'], $header['iv'])) {
+        gvh_fail('vault: bad header');
+    }
+    return array($header, $hjson, $magic + 4 + $hl);
+}
+
+function gvh_vault_open($container, $password, &$header)
+{
+    list($header, $hjson, $off) = gvh_vault_header($container);
+    $aad = hash('sha256', $hjson, true);
+    $key = gvh_vault_key($password, base64_decode($header['salt']), $header['iter']);
+    $ivp = base64_decode($header['iv']);
+    $out = '';
+    $total = strlen($container);
+    for ($i = 0; $i < (int) $header['n']; $i++) {
+        if ($off + 4 > $total) {
+            gvh_fail('vault: truncated (header says ' . $header['n'] . ' chunks)');
+        }
+        $len = unpack('N', substr($container, $off, 4));
+        $len = $len[1];
+        $off += 4;
+        if ($off + $len + 16 > $total) {
+            gvh_fail('vault: truncated chunk ' . $i);
+        }
+        $ct = substr($container, $off, $len);
+        $off += $len;
+        $tag = substr($container, $off, 16);
+        $off += 16;
+        $pt = openssl_decrypt($ct, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $ivp . pack('N', $i), $tag, $aad);
+        if ($pt === false) {
+            gvh_fail('vault: wrong password or damaged file');
+        }
+        $out .= $pt;
+    }
+    if (strlen($out) !== (int) $header['size'] || hash('sha256', $out) !== $header['sha256']) {
+        gvh_fail('vault: checksum mismatch');
+    }
+    return $out;
+}
+
 function gvh_cfg_blob($json)
 {
     if (function_exists('gzdeflate')) {
@@ -374,6 +492,88 @@ function gvh_handle($in)
             'data' => base64_encode($data),
             'enc' => base64_encode($enc),
         );
+    } elseif ($op === 'vault_seal' || $op === 'vault_open' || $op === 'vault_info') {
+        $iter = isset($in['iter']) ? (int) $in['iter'] : 150000;
+        $chunk = isset($in['chunk']) ? (int) $in['chunk'] : 1048576;
+        if ($iter < 10000 || $iter > 4000000) {
+            gvh_fail('vault: iteration count out of range');
+        }
+        if ($chunk < 1024 || $chunk > 67108864) {
+            gvh_fail('vault: chunk size out of range');
+        }
+        $isSeal = ($op === 'vault_seal');
+        $inPath = isset($in['in_path']) ? $in['in_path'] : '';
+        $vaultPath = isset($in['vault_path']) ? $in['vault_path'] : '';
+        $outPath = isset($in['out_path']) ? $in['out_path'] : '';
+        try {
+            if ($op === 'vault_info') {
+                if ($vaultPath !== '') {
+                    if (!is_file($vaultPath)) {
+                        gvh_fail('vault: file not found');
+                    }
+                    $container = file_get_contents($vaultPath);
+                } else {
+                    $container = base64_decode((string) $in['vault_b64'], true);
+                }
+                if ($container === false) {
+                    gvh_fail('vault: cannot read container');
+                }
+                list($header) = gvh_vault_header($container);
+                $res['vault'] = array('meta' => $header);
+                return $res;
+            }
+            if ($isSeal) {
+                if ($inPath !== '') {
+                    if (!is_file($inPath)) {
+                        gvh_fail('vault: input file not found');
+                    }
+                    $bytes = file_get_contents($inPath);
+                } else {
+                    $bytes = base64_decode((string) $in['data_b64'], true);
+                }
+                if ($bytes === false) {
+                    gvh_fail('vault: cannot read input');
+                }
+                list($container, $header) = gvh_vault_seal(
+                    $bytes,
+                    (string) $in['password'],
+                    isset($in['name']) ? (string) $in['name'] : 'payload.bin',
+                    isset($in['kind']) ? (string) $in['kind'] : 'file',
+                    $iter,
+                    $chunk
+                );
+                if ($outPath !== '') {
+                    if (file_put_contents($outPath, $container) === false) {
+                        gvh_fail('vault: cannot write ' . $outPath);
+                    }
+                    $res['vault'] = array('meta' => $header, 'bytes' => strlen($container), 'written' => $outPath);
+                } else {
+                    $res['vault'] = array('meta' => $header, 'bytes' => strlen($container), 'container_b64' => base64_encode($container));
+                }
+                return $res;
+            }
+            if ($vaultPath !== '') {
+                if (!is_file($vaultPath)) {
+                    gvh_fail('vault: file not found');
+                }
+                $container = file_get_contents($vaultPath);
+            } else {
+                $container = base64_decode((string) $in['vault_b64'], true);
+            }
+            if ($container === false) {
+                gvh_fail('vault: cannot read container');
+            }
+            $header = array();
+            $bytes = gvh_vault_open($container, (string) $in['password'], $header);
+            if ($outPath !== '') {
+                file_put_contents($outPath, $bytes);
+                $res['vault'] = array('meta' => $header, 'written' => $outPath);
+            } else {
+                $res['vault'] = array('meta' => $header, 'data_b64' => base64_encode($bytes));
+            }
+        } catch (Exception $e) {
+            gvh_fail('vault: ' . $e->getMessage());
+        }
     } elseif ($op === 'batch') {
         $results = array();
         foreach ($in['ops'] as $one) {

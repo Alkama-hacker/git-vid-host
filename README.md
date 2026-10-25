@@ -1,6 +1,7 @@
 # 🛡 GVH SHIELD
 
-**Seal a normal HTML website into a single encrypted PHP file.**
+**Seal a normal HTML website into a single encrypted PHP file — or lock any
+file, folder or zip inside a password-protected vault.**
 
 GVH SHIELD takes a client's `.html` page (plus its CSS, JS, images, audio and
 video), analyses it, keeps the heavy visual assets as streams, and encrypts
@@ -12,6 +13,9 @@ the site.
 Built for **Termux** (Android), any Linux box and shared PHP hosting.
 Pure Python standard library + PHP. No framework, no cloud, no database.
 
+Run `./gvh` with no arguments and you land **inside** the tool: animated banner,
+boot checks, then one question — *what do you want to secure?*
+
 ```
  SECURED BY : @SHACKER_ENCRYPTION_bot
  DEVELOPER  : Shacker
@@ -22,21 +26,76 @@ Pure Python standard library + PHP. No framework, no cloud, no database.
 
 ## Table of contents
 
-1. [What it does](#what-it-does)
-2. [Requirements](#requirements)
-3. [Install](#install)
-4. [Quick start](#quick-start)
-5. [CLI reference](#cli-reference)
-6. [How the sealing works](#how-the-sealing-works)
-7. [Defence engine](#defence-engine)
-8. [Credit banner and tamper lock](#credit-banner-and-tamper-lock)
-9. [Media and asset handling](#media-and-asset-handling)
-10. [Deployment](#deployment)
-11. [Testing](#testing)
-12. [Honest security notes](#honest-security-notes)
-13. [Troubleshooting](#troubleshooting)
-14. [Repository layout](#repository-layout)
-15. [Termux (বাংলা গাইড)](#termux)
+1. [The terminal](#the-terminal)
+2. [What it does](#what-it-does)
+3. [Requirements](#requirements)
+4. [Install](#install)
+5. [Quick start](#quick-start)
+6. [Vault: files, folders, zips](#vault-files-folders-zips)
+7. [CLI reference](#cli-reference)
+8. [How the sealing works](#how-the-sealing-works)
+9. [Defence engine](#defence-engine)
+10. [Credit banner and tamper lock](#credit-banner-and-tamper-lock)
+11. [Media and asset handling](#media-and-asset-handling)
+12. [Deployment](#deployment)
+13. [Testing](#testing)
+14. [Honest security notes](#honest-security-notes)
+15. [Troubleshooting](#troubleshooting)
+16. [Repository layout](#repository-layout)
+17. [Termux (বাংলা গাইড)](#termux)
+
+---
+
+## The terminal
+
+```bash
+./gvh
+```
+
+```
+  ███████╗██╗  ██╗ █████╗  ██████╗██╗  ██╗███████╗██████╗
+  ██╔════╝██║  ██║██╔══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗
+  ███████╗███████║███████║██║     █████╔╝ █████╗  ██████╔╝
+  ╚════██║██╔══██║██╔══██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗
+  ███████║██║  ██║██║  ██║╚██████╗██║  ██╗███████╗██║  ██║
+  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+
+   ╭──────────────────────────────────────────────────────────────╮
+   │                       S E C U R I T Y                        │
+   │sealed files · encrypted websites · zero plaintext            │
+   ╰──────────────────────────────────────────────────────────────╯
+
+   SECURED BY @SHACKER_ENCRYPTION_bot   DEV Shacker · @Haki_xmw
+```
+
+Then a short boot animation (python · crypto backend · vault folder · format),
+a status header that shows where the vault lives, and:
+
+```
+   ┌─[ STEP 1 · TARGET ]
+   │  · html / website folder → sealed index.php
+   │  · any file / folder / zip   → encrypted vault
+   └─❯ ~/sites/client/index.html
+
+   ╭─ ◆ TARGET LOCKED ──────────────────────────────────────────────╮
+   │  path        ~/sites/client/index.html                         │
+   │  type        website                                           │
+   │  plan        web page → sealed index.php                       │
+   │  size        263.0 KB                                          │
+   ╰────────────────────────────────────────────────────────────────╯
+```
+
+* Everything is **English**, no flags to memorise: type the path of a file, a
+  folder, a website folder or a zip. Drag-and-drop works in Termux.
+* Each job asks for a pretty project name (press enter to accept a generated
+  one such as `lunar-vortex-2d49`).
+* Files, folders and zips ask for a vault password (repeated, never stored).
+* A live spinner shows the real stage — PBKDF2 → AES-256-GCM → writing the
+  project folder — and the result card tells you exactly what to upload.
+* `Ctrl-C` at any point leaves everything untouched; nothing is written until
+  the project folder is ready.
+* Scripts and CI get the same tool without the theatre:
+  `NO_COLOR=1`, `GVH_NO_ANIM=1`, or the one-shot `gvh secure …` command.
 
 ---
 
@@ -148,17 +207,77 @@ Build output looks like this:
 
 ---
 
+## Vault: files, folders, zips
+
+The same terminal can lock **any** payload, not only websites.
+
+```bash
+./gvh                                  # interactive: paste the path
+./gvh secure secret.pdf                # one shot (asks nothing)
+echo 'pw' | ./gvh secure ./photos --password-stdin
+./gvh unlock ~/Shacker-Security/quiet-harbor-91af
+```
+
+Everything is stored under one pre-created root — `~/Shacker-Security/` — and
+every job gets its own small, pretty-named project folder:
+
+```
+~/Shacker-Security/
+├── README.txt                  what this folder is
+├── projects.json               local ledger of every job
+├── lunar-vortex-2d49/          ← a website
+│   ├── index.php               upload this (+ vault_* if present)
+│   ├── project.txt             human card: how to deploy
+│   └── AUDIT.json              private build report — never upload
+└── quiet-harbor-91af/          ← a file / folder / zip
+    ├── quiet-harbor-91af.gvhe  the encrypted container
+    ├── unlock.php              upload next to the container
+    ├── project.txt
+    └── AUDIT.json              never upload
+```
+
+**Container format** (`GVHVAULT1`):
+
+```
+"GVHVAULT1\n" · uint32 header-len · JSON header · chunks
+header = v, name, kind, size, sha256, salt, iv, iter, chunk, n, made
+chunk  = uint32 len | ciphertext | 16-byte GCM tag
+key    = PBKDF2-SHA256(password, salt, 150000, 32)
+iv     = 8 random bytes + uint32 chunk index   (per chunk)
+aad    = sha256(header JSON)                   (metadata is tamper-proof)
+```
+
+* **Password never stored.** Wrong password, one flipped byte or an edited
+  header all fail the GCM tag — there is no "repair" mode.
+* **Nothing is written during decryption** on the server: `unlock.php`
+  authenticates the first chunk, then streams the rest straight to the browser.
+* Folders are zipped in memory before sealing; `.zip` payloads are sealed as-is.
+* `unlock.php` is a standalone PHP 7.2+ page with a mobile-first UI, `noindex`,
+  `no-store` headers and the same credit banner as the sealed sites.
+* Large files (hundreds of MB) work with native PHP — the container is
+  streamed, not base64-loaded. The php-wasm test bridge caps at 24 MiB.
+
+---
+
 ## CLI reference
 
 ```
-gvh                            interactive mode (asks for the file)
+gvh                             the interactive terminal (default)
+gvh tui [--no-anim]             same, explicitly
 gvh build <input.html> [opts]   seal a page
 gvh inspect <input.html>        analysis only (no PHP, no files written)
+gvh secure <path> [--name N]    seal a file/folder/zip into Shacker-Security
+gvh vault  <path>               alias of `secure`
+gvh unlock <dir|container.gvhe> decrypt a vault locally
 gvh doctor                      environment check
 gvh serve <dir> [-p PORT]       PHP built-in server for a sealed folder
 gvh check <dir>                 lint + live HTTP smoke test
 gvh version                     version + credit
 ```
+
+`secure`/`vault` options: `--name`, `--password`, `--password-stdin`,
+`--vault DIR` (default `~/Shacker-Security`, or `$GVH_VAULT`), `--json`.
+`unlock` options: `-o/--output`, `--password`.
 
 Global: `--php /path/to/php`
 
@@ -437,12 +556,15 @@ expensive, but:
 
 ```
 gvh                      launcher
-src/gvh.py               CLI
+src/gvh.py               CLI (build / secure / unlock / tui / …)
+src/lib/tui.py           the interactive terminal (banner, cards, prompts)
+src/lib/vault.py         Shacker-Security projects + vault containers
 src/lib/builder.py       pipeline (analysis → rewrite → crypto → emit)
 src/lib/parser.py        stdlib HTML tokeniser / rewriter
 src/lib/brand.py         the credit banner (single source of truth)
 src/lib/crypt_build.php  build-time crypto (single source of wire formats)
 src/assets/template.php  generated PHP front controller
+src/assets/templates/unlock.php.txt   generated vault unlock page
 src/assets/js/boot.js    sealed bootstrap
 src/assets/js/defense.js defence engine (never shipped readable)
 src/assets/templates/    splash / fallback / credit / offline / https pages
