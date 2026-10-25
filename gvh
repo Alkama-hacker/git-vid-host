@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# GVH SHIELD launcher — works from any directory (Termux friendly).
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$here/src/gvh.py" "$@"

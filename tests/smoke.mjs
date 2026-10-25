@@ -1,0 +1,10 @@
+import { startServer } from './php_server.mjs';
+const dir = process.argv[2] || '/tmp/gvh-out/simple';
+const srv = await startServer(dir + '/index.php');
+const r = await srv.request({ path: '/index.php' });
+console.log('status', r.status);
+console.log('headers', Object.entries(r.headers).map(([k,v])=>k+'='+v.join('|')).slice(0,8).join('\n'));
+console.log('body len', r.body.length);
+console.log('body head', r.text().slice(0,300));
+console.log('cookie', r.setCookies);
+process.exit(0);
