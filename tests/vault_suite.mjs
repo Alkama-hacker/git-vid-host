@@ -153,6 +153,11 @@ ok('unlock.php hides from search engines', /noindex/.test(pageText));
 ok('unlock.php names the cipher', /AES-256-GCM/.test(pageText));
 ok('unlock.php GET does not leak the plaintext', !page.includes(payload.subarray(0, 64)));
 
+console.log('\n== 5b. never clobber an earlier project ==');
+gvh('vault', srcFile, '--name', 'alpha-vault', '--password', 'hunter2x');
+ok('a duplicate name gets its own folder', readdirSync(vaultRoot).includes('alpha-vault-2'));
+ok('the first project is untouched', sha(readFileSync(join(dir1, 'alpha-vault'))) === sha(payload));
+
 console.log('\n== 6. vault root bookkeeping ==');
 const rootFiles = readdirSync(vaultRoot).sort();
 ok('root README + ledger exist', rootFiles.includes('README.txt') && rootFiles.includes('projects.json'),

@@ -420,8 +420,9 @@ JSON list (`project, kind, made, bytes, source`).
 
 ### Tests
 
-`tests/vault_suite.mjs` (33 checks) runs the real PHP helper and asserts:
-byte-identical round-trip for a file and for a 3 MiB / 4-chunk payload, wrong
+`tests/vault_suite.mjs` (35 checks) runs the real PHP helper and asserts:
+byte-identical round-trip for a file and for a 3 MiB / 4-chunk payload, project
+folder uniqueness (a repeated name becomes `name-2`), wrong
 password and flipped-byte rejection, no output file on failure, folder → zip →
 decrypt, project-folder layout, ledger, credit card text, a website target, the
 `<?php /*!` first-line banner, and — most importantly — that the generated

@@ -270,7 +270,13 @@ def ensure_root(root: str) -> str:
 
 
 def project_dir(root: str, name: str) -> str:
-    path = os.path.join(root, name)
+    """One folder per job - never overwrite an earlier project."""
+    base = name
+    path = os.path.join(root, base)
+    n = 2
+    while os.path.isdir(path) and os.listdir(path):
+        path = os.path.join(root, "%s-%d" % (base, n))
+        n += 1
     os.makedirs(path, exist_ok=True)
     return path
 
