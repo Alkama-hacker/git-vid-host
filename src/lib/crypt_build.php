@@ -270,6 +270,20 @@ function gvh_bundle($source, array $opt)
     $vm = gvh_vm_xor($outer, $vmKey, $vmNonce, $prog, $rounds);
     $blob = base64_encode($vm);
 
+    // self-check: every layer we just wrote must decode again with the keys we
+    // ship in the manifest.  A failure here is a build we must not release.
+    $back = gvh_vm_xor($vm, $vmKey, $vmNonce, $prog, $rounds);
+    if ($back !== $outer) {
+        gvh_fail('engine self-check: VM layer does not round-trip');
+    }
+    $plainBack = openssl_decrypt($ctOuter, 'aes-256-gcm', $okm, OPENSSL_RAW_DATA, $ivOuter, $tagOuter);
+    if ($plainBack === false || $plainBack !== $reversed) {
+        gvh_fail('engine self-check: outer AES-256-GCM does not round-trip');
+    }
+    if (strrev($plainBack) !== $inner || substr($inner, 0, 4) !== 'GVH1') {
+        gvh_fail('engine self-check: inner engine stream is damaged');
+    }
+
     return array(
         'blob' => $blob,
         'manifest' => array(
@@ -286,6 +300,7 @@ function gvh_bundle($source, array $opt)
                 'iter' => $iter,
             ),
             'chunks' => $manifest,
+            'verified' => 1,
             'plainLen' => $len,
             'srcHash' => hash('sha256', $source),
             'srcLen' => strlen($source),

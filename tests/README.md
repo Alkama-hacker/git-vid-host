@@ -33,6 +33,7 @@ node tests/browser_suite.mjs /tmp/o/simple tests/fixtures/simple.html
 Other scripts:
 
 ```bash
+node tests/softcrypto_test.mjs  # pure-JS sha256/hmac/pbkdf2/aes-gcm vs node:crypto (30 checks)
 node tests/vault_suite.mjs    # Shacker-Security vault: seal/open/tamper/unlock.php (35 checks)
 node tests/codec_test.mjs     # PHP envelope -> browser decoder round-trip (15 checks)
 node tests/vm_selftest.mjs    # GVH-VM parity between PHP and JS

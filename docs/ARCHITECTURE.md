@@ -428,3 +428,61 @@ decrypt, project-folder layout, ledger, credit card text, a website target, the
 `<?php /*!` first-line banner, and — most importantly — that the generated
 `unlock.php` streams the exact original bytes when POSTed a correct password and
 streams nothing when given a wrong one.
+
+---
+
+## 13. Software crypto fallback + build self-check
+
+Some Chromium/WebView builds ship a `crypto.subtle` that rejects **valid**
+PBKDF2 or AES-GCM input with `OperationError`. The symptom is confusing: the
+splash and the key-relay requests all succeed (so the server looks fine) and
+only the *engine* stage dies — because the engine body is the only place that
+uses PBKDF2.
+
+`src/assets/js/soft.js` (ES5, no dependencies) implements the same primitives:
+
+| Function | Notes |
+|---|---|
+| `sha256` | streaming 64-byte blocks, tested against `node:crypto` for every length class (55/56/63/64/119/120 …) |
+| `hmac` | key > 64 bytes is hashed first, as specified |
+| `pbkdf2` | `dkLen` up to 64, 1 … 120 000 iterations verified |
+| `gcmOpen` | byte-oriented AES-256 + GHASH, 12-byte IV, 16-byte tag, throws `auth` on mismatch |
+
+`boot.js` routes `digest` / `mac` / `gcm` / `deriveEngineKey` through a
+`SOFTMODE` flag. On the first `OperationError` the whole engine decode is
+replayed with `SOFTMODE = true`; content chunks get the same one-shot fallback.
+Correctness is proven in `tests/softcrypto_test.mjs` (30 checks) and in the
+browser suite, which boots a page with a deliberately sabotaged
+`crypto.subtle` (`breakCrypto: 'pbkdf2' | 'gcm'`).
+
+### The seed is shipped, not rebuilt
+
+The engine password used to be rebuilt in the browser:
+
+```js
+core + '|' + site + '|' + salt_b64 + '|' + BANNER
+```
+
+Any drift in one of those parts silently produced a wrong key and an
+`OperationError` with no explanation. The manifest now carries the exact string
+the PHP side hashed (`manifest.seed`), so the browser never reassembles it. The
+old formula is still accepted as a fallback, so existing builds keep working.
+
+### Build self-check
+
+`crypt_build.php` decodes its own envelope before returning it:
+
+```
+vm_xor(vm) == outer            → VM layer round-trips
+AES-GCM(outer) == reversed     → outer layer round-trips
+strrev(plain) == inner, 'GVH1' → inner stream intact
+```
+
+A failure aborts the build instead of shipping a page that cannot open.
+
+### Error codes
+
+`E1` engine damaged · `E2` browser cannot unlock · `E3` chunk integrity ·
+`E5` relay/session/network · `E6` files missing. The code is rendered on the
+offline page and logged to the console (`GVH E3: <detail>`), so a screenshot is
+enough to diagnose a deployment.
