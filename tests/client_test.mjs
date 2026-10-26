@@ -61,11 +61,35 @@ export function makeXHR(srv, log = []) {
   };
 }
 
+/**
+ * Simulate the Android WebView bug that motivated src/assets/js/soft.js:
+ * a crypto.subtle whose PBKDF2 (or AES-GCM) rejects valid input with the same
+ * OperationError a real broken build throws.
+ */
+function brokenCrypto(kind) {
+  const boom = () => {
+    const e = new Error('The operation failed for an operation-specific reason');
+    e.name = 'OperationError';
+    return Promise.reject(e);
+  };
+  const real = webcrypto.subtle;
+  return {
+    getRandomValues: (a) => webcrypto.getRandomValues(a),
+    subtle: {
+      digest: real.digest.bind(real),
+      importKey: (...a) => real.importKey(...a),
+      sign: (...a) => real.sign(...a),
+      deriveKey: kind === 'pbkdf2' ? boom : (...a) => real.deriveKey(...a),
+      decrypt: kind === 'gcm' ? boom : (...a) => real.decrypt(...a),
+    },
+  };
+}
+
 function installGlobals(win, srv, log, opts, redir) {
   const define = (name, value) => {
     try { Object.defineProperty(win, name, { value, configurable: true, writable: true }); } catch (e) { }
   };
-  define('crypto', webcrypto);
+  define('crypto', opts && opts.breakCrypto ? brokenCrypto(opts.breakCrypto) : webcrypto);
   define('TextEncoder', TextEncoder);
   define('TextDecoder', TextDecoder);
   try {

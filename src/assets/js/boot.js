@@ -314,19 +314,47 @@
   /* ------------------------------------------------------------------ */
   /* 3. WebCrypto helpers                                               */
   /* ------------------------------------------------------------------ */
+  /* Some Chromium/WebView builds ship a broken crypto.subtle: valid PBKDF2 or
+   * AES-GCM calls reject with OperationError.  Every primitive below therefore
+   * has a pure-JS twin (GVH_SOFT) and SOFTMODE flips the whole engine decode
+   * onto it.  Same keys, same tags - just slower. */
+  var SOFT = W.GVH_SOFT || null;
+  var SOFTMODE = false;
+
   function digest(bytes) {
+    if (SOFTMODE && SOFT) return Promise.resolve(SOFT.sha256(bytes));
     return SC.digest('SHA-256', bytes).then(function (b) { return new Uint8Array(b); });
   }
   function mac(keyRaw, msg) {
+    if (SOFTMODE && SOFT) return Promise.resolve(SOFT.hmac(keyRaw, msg));
     return SC.importKey('raw', keyRaw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
       .then(function (k) { return SC.sign('HMAC', k, msg); })
       .then(function (b) { return new Uint8Array(b); });
   }
   function gcm(keyRaw, iv, ctAndTag) {
+    if (SOFTMODE && SOFT) {
+      return Promise.resolve().then(function () { return SOFT.gcmOpen(keyRaw, iv, ctAndTag); });
+    }
     return SC.importKey('raw', keyRaw, { name: 'AES-GCM' }, false, ['decrypt'])
       .then(function (k) {
         return SC.decrypt({ name: 'AES-GCM', iv: iv, tagLength: 128 }, k, ctAndTag);
       }).then(function (b) { return new Uint8Array(b); });
+  }
+  /** PBKDF2 -> raw 32-byte AES key (soft) or CryptoKey (WebCrypto) */
+  function deriveEngineKey(pass, salt, iter) {
+    if (SOFTMODE && SOFT) return Promise.resolve(SOFT.pbkdf2(pass, salt, iter, 32));
+    return SC.importKey('raw', pass, { name: 'PBKDF2' }, false, ['deriveKey'])
+      .then(function (pk) {
+        return SC.deriveKey({ name: 'PBKDF2', salt: salt, iterations: iter, hash: 'SHA-256' },
+          pk, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      });
+  }
+  function gcmWith(key, iv, ctAndTag) {
+    if (SOFTMODE && SOFT) {
+      return Promise.resolve().then(function () { return SOFT.gcmOpen(key, iv, ctAndTag); });
+    }
+    return SC.decrypt({ name: 'AES-GCM', iv: iv, tagLength: 128 }, key, ctAndTag)
+      .then(function (b) { return new Uint8Array(b); });
   }
 
   /* ------------------------------------------------------------------ */
@@ -374,7 +402,8 @@
   /* ------------------------------------------------------------------ */
   /* 5. decrypt the defence engine                                      */
   /* ------------------------------------------------------------------ */
-  var passSeed = MAN.core + '|' + MAN.site + '|' + MAN.pbkdf2.salt + '|' + BANNER;
+  var rebuiltSeed = MAN.core + '|' + MAN.site + '|' + MAN.pbkdf2.salt + '|' + BANNER;
+  var passSeed = MAN.seed || rebuiltSeed;
   var vmKey = b64d(MAN.vm.k), vmNonce = b64d(MAN.vm.n), vmProg = b64d(MAN.vm.p);
 
   progress(12, 'unsealing defence engine…');
@@ -385,15 +414,25 @@
       var salt = outer.subarray(0, 16), iv = outer.subarray(16, 28), tag = outer.subarray(28, 44);
       var body = outer.subarray(44);
       return digest(u8(passSeed)).then(function (pass) {
-        return SC.importKey('raw', pass, { name: 'PBKDF2' }, false, ['deriveKey']).then(function (pk) {
-          return SC.deriveKey({ name: 'PBKDF2', salt: salt, iterations: MAN.pbkdf2.iter, hash: 'SHA-256' },
-            pk, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
-        }).then(function (key) {
-          return SC.decrypt({ name: 'AES-GCM', iv: iv, tagLength: 128 }, key, cat(body, tag));
+        return deriveEngineKey(pass, salt, MAN.pbkdf2.iter).then(function (key) {
+          return gcmWith(key, iv, cat(body, tag));
         });
       }).then(function (buf) { return new Uint8Array(buf); });
     }).then(function (reversed) {
       return parseEngine(rev(reversed));
+    });
+  }
+
+  /** WebCrypto first; if the browser's implementation misbehaves, replay the
+   *  whole engine decode with the pure-JS primitives. */
+  function decryptEngineHardened() {
+    return decryptEngine().then(null, function (e1) {
+      if (SOFTMODE || !SOFT) throw e1;
+      SOFTMODE = true;
+      return decryptEngine().then(null, function (e2) {
+        SOFTMODE = false;
+        throw (e2 || e1);
+      });
     });
   }
 
@@ -490,8 +529,12 @@
     }).then(function (bytes) {
       return utf8(bytes);
     }).catch(function (err) {
-      if (retry > 0) {
+      if (retry > 0 && !SOFTMODE) {
         return new Promise(function (r) { setTimeout(r, 320); }).then(function () { return loadChunk(i, retry - 1); });
+      }
+      if (!SOFTMODE && SOFT && /auth|Operation|DataError|crypto/i.test(String(err && err.name || err))) {
+        SOFTMODE = true;                 // broken crypto.subtle: redo in JS
+        return loadChunk(i, 0);
       }
       throw err;
     });
@@ -514,7 +557,7 @@
   }
   for (var r = 0; r < pool; r++) runners.push(pump());
 
-  decryptEngine().then(function (engineSrc) {
+  decryptEngineHardened().then(function (engineSrc) {
     if (!engineSrc || engineSrc.length < 200) throw new Error('engine-empty');
     return Promise.all(runners).then(function () {
       progress(96, 'assembling protected page…');
@@ -536,11 +579,21 @@
   }).catch(function (err) {
     var m = String(err && err.message || err);
     if (W.__GVH_DEBUG) { try { W.console.log('GVH-ERR', m); } catch (e) { } }
-    var msg = 'The secure relay did not answer. This page only unlocks from its original server (PHP hosting required).';
-    if (/http-403/.test(m)) msg = 'This session is not authorised. Reload the page from its original address.';
-    if (/http-404/.test(m)) msg = 'Secure assets are missing on the server. Re-upload the generated files.';
-    if (/checksum|mismatch|truncated|metadata|credit-missing/.test(m)) return creditPage();
-    dead(msg);
+    if (/credit-missing|credit|engine checksum mismatch/.test(m)) return creditPage();
+    var code = 'E2', msg = 'The sealed layers could not be unlocked in this browser.';
+    if (/http-403/.test(m)) {
+      code = 'E5'; msg = 'This session is not authorised. Reload the page from its original address.';
+    } else if (/http-404/.test(m)) {
+      code = 'E6'; msg = 'Sealed files are missing on the server. Re-upload the whole generated folder.';
+    } else if (/network|timeout|bad-json|sealed-payload-missing/i.test(m)) {
+      code = 'E5'; msg = 'The key relay did not answer. Check the server, then reload.';
+    } else if (/engine-empty|bad engine header|engine length|metadata|engine chunk truncated/i.test(m)) {
+      code = 'E1'; msg = 'The sealed engine is damaged. Rebuild and upload index.php again.';
+    } else if (/auth|OperationError|DataError|chunk-order-violation|truncated/i.test(m)) {
+      code = 'E3'; msg = 'A sealed chunk failed its integrity check.';
+    }
+    try { W.console.error('GVH ' + code + ': ' + m); } catch (e) { }
+    dead(msg + '  [' + code + ']');
   });
 
   // decoy traffic: fake key APIs are called too, so traffic analysis is useless

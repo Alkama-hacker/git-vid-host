@@ -62,6 +62,50 @@ check('shell has no manifest leakage of chunk keys', !/\"ct\":/.test(b.shellHtml
   check('shell carries a frame-host key', !!hostKey && /^h_[0-9a-f]{12,16}$/.test(hostKey), hostKey);
 }
 
+/* ------------------------------------------------------------------ */
+/* 1c. broken WebCrypto must not kill the page (soft.js fallback)      */
+/* ------------------------------------------------------------------ */
+{
+  // fixture-agnostic "the real page came up" signal: the sealed engine was
+  // injected, no error page replaced the content, and the frame holds markup
+  // note: the shell source embeds the offline page as a JS string, so only the
+  // *injected engine* proves the sealed content really came up
+  const rendered = (r) => r.frameCount === 1 &&
+    /GVH SHIELD :: defence engine/.test(r.finalHtml) && !/\[E[0-9]\]/.test(r.finalHtml);
+
+  const pbkdf2 = await boot(srv, { breakCrypto: 'pbkdf2' });
+  check('broken PBKDF2 falls back to software crypto', rendered(pbkdf2),
+    pbkdf2.finalHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 120));
+
+  const gcm = await boot(srv, { breakCrypto: 'gcm' });
+  check('broken AES-GCM falls back to software crypto', rendered(gcm),
+    gcm.finalHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 120));
+}
+
+/* ------------------------------------------------------------------ */
+/* 1d. the engine seed comes from the manifest, not from a rebuild     */
+/* ------------------------------------------------------------------ */
+{
+  // core/site mutated but the stored seed kept -> must still unlock
+  const seeded = await boot(srv, {
+    transformHtml: (h) => h.replace(/("core":")[^"]+/, '$1DEADBEEF0000'),
+  });
+  check('engine unlock trusts the manifest seed',
+    seeded.frameCount === 1 && /GVH SHIELD :: defence engine/.test(seeded.finalHtml) &&
+    !/\[E[0-9]\]/.test(seeded.finalHtml),
+    seeded.finalHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 120));
+
+  // seed mutated -> must fail loudly (proves the seed is the one in use)
+  const broken = await boot(srv, {
+    transformHtml: (h) => h.replace(/("seed":")[^"]+/, '$1nope|nope|nope|nope'),
+  });
+  check('a wrong seed is refused, with an error code',
+    /\[E[0-9]\]/.test(broken.finalHtml) || /edit my credit/.test(broken.finalHtml),
+    broken.finalHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 140));
+  check('the failure page never claims "PHP hosting required"',
+    !/PHP hosting required/.test(broken.finalHtml));
+}
+
 const html = b.finalHtml;
 
 /* ------------------------------------------------------------------ */

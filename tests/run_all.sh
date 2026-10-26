@@ -10,6 +10,9 @@ FAIL=0
 python3 tests/fixtures_gen.py "$SITES" > /tmp/gvh-sites.json || exit 1
 
 echo
+echo "================ SOFT CRYPTO ================"
+node tests/softcrypto_test.mjs || FAIL=1
+
 echo "================ VAULT ================"
 node tests/vault_suite.mjs || FAIL=1
 

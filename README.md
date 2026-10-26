@@ -549,6 +549,30 @@ expensive, but:
 | Video does not seek | Use `files` mode (`--asset-mode files`) so Range requests stream from the vault. |
 | Site looks zoomed out on phones | Add `<meta name="viewport" content="width=device-width,initial-scale=1">` (build warns). |
 | 403 for everyone | Check the UA: some hosts' security layers inject UAs; test with `--allow-crawlers` first. |
+| Page fails with `[E1]` | The sealed engine is damaged — rebuild and upload `index.php` again. |
+| Page fails with `[E5]` | The key relay did not answer: 403 = stale session (reload from the original URL), 404 = files missing on the server, otherwise a PHP/network problem. |
+| Page fails with `[E6]` | Upload the **whole** generated folder (including `vault_*`), not just `index.php`. |
+| Page fails with `[E2]`/`[E3]` on one browser only | That browser's `crypto.subtle` is broken. The page now retries automatically with the built-in pure-JS crypto (`src/assets/js/soft.js`); if it still fails, send the code shown on screen. |
+
+### If a page will not open (error codes)
+
+The failure screen never says "PHP hosting required" unless PHP really is
+missing. It shows a short code instead:
+
+| Code | Meaning |
+|---|---|
+| `E1` | sealed engine damaged (rebuild) |
+| `E2` | sealed layers could not be unlocked in this browser |
+| `E3` | a sealed chunk failed its integrity check |
+| `E5` | key relay / network / session problem |
+| `E6` | sealed files missing on the server |
+
+Every GCM/PBKDF2 step has a **software fallback**: if `crypto.subtle` throws
+`OperationError` (a real bug in some Android WebView and Chromium builds), the
+bootstrap replays the whole engine decode with `src/assets/js/soft.js` — same
+keys, same tags, verified byte-for-byte against Node's crypto in
+`tests/softcrypto_test.mjs`. The build itself also self-checks every layer
+before it writes `index.php`.
 
 ---
 

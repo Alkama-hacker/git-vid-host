@@ -614,10 +614,14 @@ class Builder:
         for i in range(24):
             fakes.append(hashlib.sha256((self.site + "|fake|" + salt + "|" + str(i)).encode()).hexdigest()[:32])
 
+        man_pbkdf2 = bundle["manifest"]["pbkdf2"]
         manifest = {
             "v": 2,
             "site": self.site,
             "core": self.core,
+            # the exact string the PHP side fed to PBKDF2 - the browser must not
+            # have to rebuild it from parts (one drifted byte = dead page)
+            "seed": "%s|%s|%s|%s" % (self.core, self.site, man_pbkdf2["salt"], brand.banner()),
             "guard": self.guard,
             "vm": bundle["manifest"]["vm"],
             "pbkdf2": bundle["manifest"]["pbkdf2"],
@@ -1022,6 +1026,7 @@ class Builder:
         shell = pages["splash"]
         shell = shell.replace("{{TITLE}}", esc(title))
         boot = _read(os.path.join(ASSETS, "js", "boot.js"))
+        soft = _read(os.path.join(ASSETS, "js", "soft.js"))
         pages_json = {"fallback": pages["fallback"], "credit": pages["credit"],
                       "offline": pages["offline"], "https": pages["https"]}
         boot = boot.replace("@@BANNER@@", js_json(brand.banner()))
@@ -1040,7 +1045,7 @@ class Builder:
                 if "favicon" in a.name.lower() or a.name.lower().endswith(".ico"):
                     favicon = "?%s=%s&%s=%s" % (self.ap, a.id, self.pt, self.ph_tok)
                     break
-        script = brand.banner() + "\n" + boot
+        script = brand.banner() + "\n" + soft + "\n" + boot
         shell = shell.replace("{{FAVICON}}", esc(favicon))
         shell = shell.replace("@@SCRIPT@@", script)
         # top-of-file credit, visible when someone opens "view-source"
